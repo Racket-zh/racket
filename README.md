@@ -1,3 +1,8 @@
+本项目迁移自 [OnRoadZy](https://github.com/OnRoadZy/) 的翻译，
+目前 Racket 指南和参考手册已进入校对阶段。
+
+译者交流 QQ 群：523791077
+
 This is the source code for the core of Racket. See "INSTALL.txt" for
 full information on building Racket.
 
@@ -23,6 +28,6 @@ Racket is distributed under the GNU Lesser General Public License
 applications, provided you follow the rules stated in the LGPL.  You can
 also modify Racket; if you distribute a modified version, you must
 distribute it under the terms of the LGPL, which in particular states
-that you must release the source code for the modified software.  
+that you must release the source code for the modified software.
 
 See racket/src/COPYING_LESSER.txt for more information.
