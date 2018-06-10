@@ -149,7 +149,7 @@ DrRacket 下方的文本区和 @exec{racket} 命令行程序（在无选项启�
 @; @racket["the boy out of the country"], @racket[4], and @racket[7]:
 
 Racket 使用圆括号来括住较大的表达式---即除常量之外的几乎任何表达式。
-例如，一个函数调用写作：开括号，函数名，参数表达式和比括号。
+例如，一个函数调用写作：开括号，函数名，参数表达式和闭括号。
 以下表达式以参数 @racket["the boy out of the country"]、@racket[4] 和
 @racket[7] 调用了内建函数 @racket[substring]：
 
