@@ -1,22 +1,30 @@
 #lang scribble/manual
 @(require scribble/eval "guide-utils.rkt")
 
-@title{The Racket Guide}
+@; @title{The Racket Guide}
 
-@author["Matthew Flatt" "Robert Bruce Findler" "PLT"]
+@; @author["Matthew Flatt" "Robert Bruce Findler" "PLT"]
 
-This guide is intended for programmers who are new to Racket or new to
-some part of Racket. It assumes programming experience, so if you are
-new to programming, consider instead reading @|HtDP|. If you want an
-especially quick introduction to Racket, start with @|Quick|.
+@title{Racket 指南}
 
-@seclink["to-scheme"]{Chapter 2} provides a brief introduction to
-Racket. From @seclink["datatypes"]{Chapter 3} on, this guide dives
-into details---covering much of the Racket toolbox, but leaving
-precise details to @|Racket| and other reference manuals.
+@author["Matthew Flatt" "Robert Bruce Findler" "PLT" "Racket-zh 项目组译"]
 
-@margin-note{The source of this manual is available on
-@hyperlink["https://github.com/racket/racket/tree/master/pkgs/racket-doc/scribblings/guide"]{GitHub}.}
+@; This guide is intended for programmers who are new to Racket or new to
+@; some part of Racket. It assumes programming experience, so if you are
+@; new to programming, consider instead reading @|HtDP|. If you want an
+@; especially quick introduction to Racket, start with @|Quick|.
+
+本指南面向尚无 Racket 经验或有部分经验的程序员，即假定读者有编程经验。
+如果你是编程新手，请考虑阅读 @|HtDP|。如果你想要对 Racket 有一个大概的了解，
+请参阅 @|Quick|。
+
+本指南的@seclink["to-scheme"]{第二章}对 Racket 进行了简单的介绍。
+从@seclink["datatypes"]{第三章}开始，本指南将深入细节---其中涵盖了 Racket
+的大部分工具箱，不过精确的细节还请参阅@|Racket|和其它参考手册。
+
+@margin-note{本文档的源代码可从
+@hyperlink["https://github.com/racket/racket/tree/master/pkgs/racket-doc/scribblings/guide"]{GitHub}
+上获取。}
 
 @table-of-contents[]
 
@@ -71,7 +79,7 @@ precise details to @|Racket| and other reference manuals.
 @; ----------------------------------------------------------------------
 
 @(bibliography
- 
+
   (bib-entry #:key "Goldberg04"
              #:author "David Goldberg, Robert Bruce Findler, and Matthew Flatt"
              #:title "Super and Inner---Together at Last!"
@@ -84,14 +92,14 @@ precise details to @|Racket| and other reference manuals.
              #:title "Composable and Compilable Macros: You Want it When?"
              #:location "International Conference on Functional Programming"
              #:date "2002")
- 
+
   (bib-entry #:key "Flatt06"
              #:author "Matthew Flatt, Robert Bruce Findler, and Matthias Felleisen"
              #:title "Scheme with Classes, Mixins, and Traits (invited tutorial)"
              #:location "Asian Symposium on Programming Languages and Systems"
              #:url "http://www.cs.utah.edu/plt/publications/aplas06-fff.pdf"
              #:date "2006")
- 
+
  (bib-entry #:key "Mitchell02"
             #:author "Richard Mitchell and Jim McKim"
             #:title "Design by Contract, by Example"
