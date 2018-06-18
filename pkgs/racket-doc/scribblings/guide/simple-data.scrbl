@@ -46,7 +46,7 @@ Racket 值包括数值、布尔值、字符串和字节串（Byte Strings）。�
 
 @; @moreguide["strings"]{strings}
 
-@defterm{字符串}写在双引号 @racket[""] 之间。字符串中以反斜杠 @racket[\]
+@defterm{字符串}写在双引号 @racket[""] 之间。字符串中以反斜杠 @racket["\\"]
 作为转义字符。例如，字符串中的一个反斜杠后跟一个双引号 @racket["\""]
 即表示双引号字面量（Literals）。除未转义的双引号和反斜杠外，任何 Unicode
 字符均可出现在字符串常量中。
