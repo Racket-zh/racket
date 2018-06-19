@@ -1,0 +1,29 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: olingcat/racket:latest
+    steps:
+      - run:
+          name: Configure environment
+          command: |
+              echo . ~/.profile >> $BASH_ENV
+              git config --global core.autocrlf input
+              git config --global user.name "Oling Cat"
+              git config --global user.email "olingcat@gmail.com"
+      - checkout
+      - run:
+          name: Building...
+          command: make
+      - run:
+          name: Deplying...
+          command: |
+              if [ -z "$CIRCLE_PULL_REQUESTS" ] && [ $CIRCLE_BRANCH == zh-master ]
+              then git clone --depth 1 github.com:Racket-zh/docs.git
+                   cp -LRf racket/doc/* docs
+                   cd docs
+                   git add .
+                   git commit -m r$CIRCLE_BUILD_NUM
+                   git push
+              fi
+
