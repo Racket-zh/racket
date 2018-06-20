@@ -9,7 +9,7 @@
 
 @; @title{Pairs, Lists, and Racket Syntax}
 
-@title{序对、列表和 Racket 语法}
+@title[#:tag "Pairs__Lists__and_Racket_Syntax"]{序对、列表和 Racket 语法}
 
 @; The @racket[cons] function actually accepts any two values, not just
 @; a list for the second argument. When the second argument is not
@@ -262,7 +262,7 @@ map
 @; way. You can see this if you put a @litchar{'} in front of a form that has a
 @; @litchar{'}:
 
-@litchar{'} 会以相当字面的方式展开为 @racket[quote] 形式。如果你在带有 @litchar{'}
+@litchar{'} 会按其字面意思展开为 @racket[quote] 形式。如果你在带有 @litchar{'}
 的形式前面再加一个 @litchar{'}，就会看到这一点：
 
 @interaction[

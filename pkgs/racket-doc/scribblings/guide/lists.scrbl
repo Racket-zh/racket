@@ -10,7 +10,7 @@
 
 @; @title{Lists, Iteration, and Recursion}
 
-@title{列表，迭代与递归}
+@title[#:tag "Lists__Iteration__and_Recursion"]{列表，迭代与递归}
 
 @; Racket is a dialect of the language Lisp, whose name originally stood
 @; for ``LISt Processor.'' The built-in list datatype remains a prominent
