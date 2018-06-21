@@ -3,7 +3,7 @@
 
 @; @title{Simple Values}
 
-@title{简单的值}
+@title[#:tag "Simple_Values"]{简单的值}
 
 @; Racket values include numbers, booleans, strings, and byte strings. In
 @; DrRacket and documentation examples (when you read the documentation

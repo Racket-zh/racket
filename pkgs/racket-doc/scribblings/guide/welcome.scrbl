@@ -250,10 +250,10 @@ racket
 (extract "the cat out of the bag")
 ]
 
-then it is a complete program that prints ``cat'' when run. You can
-run the program within DrRacket or using @racket[enter!] in
-@exec{racket}, but if the program is saved in @nonterm{src-filename},
-you can also run it from a command line with
+@; then it is a complete program that prints ``cat'' when run. You can
+@; run the program within DrRacket or using @racket[enter!] in
+@; @exec{racket}, but if the program is saved in @nonterm{src-filename},
+@; you can also run it from a command line with
 
 那么它就是个在运行时会打印“cat”的完整程序。你可以使用 DrRacket 或在
 @exec{racket} 中使用 @exec{racket} 来运行该程序。但如果该程序保存在
@@ -309,7 +309,7 @@ you can also run it from a command line with
        来将其转换为可执行脚本。此外，你还需要在命令行中用 @exec{chmod +x
        @nonterm{filename}} 为其赋予可执行权限。
 
-       只要 @exec{racket} 在用户的可执行文件搜索路径（即 @tech{PATH}
+       只要 @exec{racket} 在用户的可执行文件搜索路径（即 @deftech{PATH}
        环境变量）中，该脚本就能工作。如果在 @tt{#!} 之后使用
        @exec{racket} 的完整路径（@tt{#!} 和路径之间留有一空格），
        那么用户的可执行文件搜索路径就无关紧要了。}

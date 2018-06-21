@@ -27,42 +27,42 @@
   (italic (link "http://www.htdp.org" "How to Design Programs")))
 
 (define (tool name . desc)
-  (apply item (bold name) ", " desc))
+  (apply item (bold name) "，" desc))
 
 (define (moreguide tag . s)
   (apply margin-note
          (decode-content (append
                           (list
-                           finger (secref tag) " (later in this guide)"
-                           " explains more about ")
+                           finger (secref tag) "一节（本手册后文）中"
+                           "解释了有关 ")
                           s
-                          (list ".")))))
+                          (list " 的更多详情。")))))
 
 (define (guideother . s)
   (apply margin-note
          (cons finger (decode-content s))))
 
-(define (refdetails* tag what . s)
+(define (refdetails* tag what zh-postfix . s)
   (apply margin-note
          (decode-content (append (list magnify (ext-refsecref tag))
                                  (list what)
                                  s
-                                 (list ".")))))
+                                 (list zh-postfix "。")))))
 
 (define (refdetails tag . s)
-  (apply refdetails* tag " provides more on " s))
+  (apply refdetails* tag "提供了关于" "的更多信息" s))
 
 (define (refalso tag . s)
-  (apply refdetails* tag " also documents " s))
+  (apply refdetails* tag "也提供了" "的文档" s))
 
 (define (refdetails/gory tag . s)
-  (apply refdetails* tag " documents the fine points of " s))
+  (apply refdetails* tag "阐述了" "的要点" s))
 
 (define (refsecref s)
   (secref #:doc '(lib "scribblings/reference/reference.scrbl") s))
 
 (define (ext-refsecref s)
-  (make-element #f (list (refsecref s) " in " Racket)))
+  (make-element #f (list Racket "的" (refsecref s) "一节中")))
 
 (define Racket (other-manual '(lib "scribblings/reference/reference.scrbl")))
 
