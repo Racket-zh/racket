@@ -7,10 +7,14 @@
  redirection.
 }
 
-@title{Redirections}
+@; @title{Redirections}
 
-This page is intended to redirect to the result of a search
-request. Since you're reading this, it seems that the redirection
-did not work.
+@title{重定向}
+
+@; This page is intended to redirect to the result of a search
+@; request. Since you're reading this, it seems that the redirection
+@; did not work.
+
+此页面用于重定向搜索请求的结果。既然你读到了这段文字，说明重定向没起作用。
 
 @(make-local-redirect #f)

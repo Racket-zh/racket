@@ -12,37 +12,70 @@
 ;; user-specific version (and navigating to them should get to the
 ;; user-specific pages using cookies).  (Note: the subpath must match
 ;; where the corresponding document is generated, this is a hack.)
+;; (define links
+;;   `((start   "Racket Documentation" user "index.html")
+;;     ;; XXX I want this to say Global vs Local but I don't think this
+;;     ;; can be something overrided by css/js with doc-site
+;;     (search  "Search Manuals"       user "search/index.html")
+;;     ---
+;;     (license "License"          plt  "license/index.html")
+;;     (acks    "Acknowledgements" plt  "acks/index.html")
+;;     (release "Release Notes"    user  "release/index.html")
+;;     ---
+;;     (bugreport "Report a Bug"   #f ,(format "~a?v=~a" bug-url (version)))))
+
 (define links
-  `((start   "Racket Documentation" user "index.html")
+  `((start   "Racket 文档" user "index.html")
     ;; XXX I want this to say Global vs Local but I don't think this
     ;; can be something overrided by css/js with doc-site
-    (search  "Search Manuals"       user "search/index.html")
+    (search  "搜索手册"       user "search/index.html")
     ---
-    (license "License"          plt  "license/index.html")
-    (acks    "Acknowledgements" plt  "acks/index.html")
-    (release "Release Notes"    user  "release/index.html")
+    (license "授权许可"          plt  "license/index.html")
+    (acks    "特别感谢" plt  "acks/index.html")
+    (release "发行注记"    user  "release/index.html")
     ---
-    (bugreport "Report a Bug"   #f ,(format "~a?v=~a" bug-url (version)))))
+    (bugreport "报告问题"   #f ,(format "~a?v=~a" bug-url (version)))))
 
 ;; Section definitions for manuals that appear on the start page.
+;; (define manual-sections
+;;   '((getting-started #f)
+;;     (tutorial        "Tutorials")
+;;     (racket-core     "Racket Language and Core Libraries")
+;;     (teaching        "Teaching")
+;;     (language        (elem "Other "
+;;                            (link "Languages"
+;;                                  (lib "scribblings/guide/guide.scrbl")
+;;                                  "dialects")
+;;                            " in the Racket Environment "))
+;;     (tool            "Tools")
+;;     (gui-library     "GUI and Graphics Libraries")
+;;     (net-library     "Network Libraries")
+;;     (parsing-library "Parsing Libraries")
+;;     (tool-library    "Tool Libraries")
+;;     (foreign         "Low-Level APIs")
+;;     (interop         "Interoperability")
+;;     (library         "Miscellaneous Libraries")
+;;     (experimental    "Experimental Languages and Libraries")
+;;     (legacy          "Legacy Languages and Libraries")
+;;     (other           "Other")))
+
 (define manual-sections
   '((getting-started #f)
-    (tutorial        "Tutorials")
-    (racket-core     "Racket Language and Core Libraries")
-    (teaching        "Teaching")
-    (language        (elem "Other "
-                           (link "Languages"
+    (tutorial        "教程")
+    (racket-core     "Racket 语言与核心库")
+    (teaching        "教学")
+    (language        (elem "Racket 环境中的其它"
+                           (link "语言"
                                  (lib "scribblings/guide/guide.scrbl")
-                                 "dialects")
-                           " in the Racket Environment "))
-    (tool            "Tools")
-    (gui-library     "GUI and Graphics Libraries")
-    (net-library     "Network Libraries")
-    (parsing-library "Parsing Libraries")
-    (tool-library    "Tool Libraries")
-    (foreign         "Low-Level APIs")
-    (interop         "Interoperability")
-    (library         "Miscellaneous Libraries")
-    (experimental    "Experimental Languages and Libraries")
-    (legacy          "Legacy Languages and Libraries")
-    (other           "Other")))
+                                 "dialects")))
+    (tool            "工具")
+    (gui-library     "GUI 与图形库")
+    (net-library     "网络库")
+    (parsing-library "解析库")
+    (tool-library    "工具库")
+    (foreign         "底层 API")
+    (interop         "互操作性")
+    (library         "杂项库")
+    (experimental    "实验性语言与库")
+    (legacy          "早期语言与库")
+    (other           "其它")))
