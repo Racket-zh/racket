@@ -1,7 +1,10 @@
-本项目迁移自 [OnRoadZy](https://github.com/OnRoadZy/) 的翻译，
-目前 Racket 指南和参考手册已进入校对阶段。
+## Racket 文档中文翻译项目
+要加入翻译小组，请先阅读 [翻译规范](https://github.com/Racket-zh/racket/issues/1) 和
+[翻译计划](https://github.com/Racket-zh/racket/issues/2)。
 
 译者交流 QQ 群：523791077
+
+## README
 
 This is the source code for the core of Racket. See "INSTALL.txt" for
 full information on building Racket.
