@@ -692,7 +692,7 @@ generates functions:
 @; ``remembers'' the right @racket[s2]:
 
 Racket 是一个带有@defterm{词法作用域}的语言，这表示 @racket[make-add-suffix]
-返回的函数中的 @racket[s2] 总是会引用创建该函数的调用的参数。换句话说，
+返回的函数中的 @racket[s2] 总是会引述创建该函数的调用的参数。换句话说，
 被生成的 @racket[lambda] 函数“记住了”正确的 @racket[s2]：
 
 @interaction[
@@ -836,7 +836,7 @@ louder
 @; other. The @racket[let*] form, in contrast, allows later clauses to
 @; use earlier bindings:
 
-@racket[let] 形式中的绑定只能在 @racket[let] 的主体中使用，因此绑定从句无法互相引用。
+@racket[let] 形式中的绑定只能在 @racket[let] 的主体中使用，因此绑定从句无法互相引述。
 而 @racket[let*] 形式则允许后面的从句使用前面的绑定：
 
 @interaction[

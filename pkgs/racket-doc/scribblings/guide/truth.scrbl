@@ -78,7 +78,7 @@ Racket 的序对数据类型和它与列表的关系，连同打印时的点号�
 @; @racket[car] of each pair is a key and the @racket[cdr] is an
 @; arbitrary value.
 
-有时我们需要特意去使用非列表序。例如，@racket[make-hash] 函数接受一个序对的列表，
+有时我们需要特意去使用非列表序对。例如，@racket[make-hash] 函数接受一个序对的列表，
 其中每个序对的 @racket[car] 为键，@racket[cdr] 为值。
 
 @; The only thing more confusing to new Racketeers than non-list pairs is
@@ -105,7 +105,7 @@ Racket 的序对数据类型和它与列表的关系，连同打印时的点号�
 @;------------------------------------------------------------------------
 @; @section[#:tag "quoting-lists"]{Quoting Pairs and Symbols with @racket[quote]}
 
-@section[#:tag "quoting-lists"]{用 @racket[quote] 引用序对和符号}
+@section[#:tag "quoting-lists"]{用 @racket[quote] 引述序对和符号}
 
 @; A list prints with a quote mark before it, but if an element of a list
 @; is itself a list, then no quote mark is printed for the inner list:
@@ -133,7 +133,7 @@ Racket 的序对数据类型和它与列表的关系，连同打印时的点号�
 @; quoted form is normalized by the dot-parenthesis elimination rule or
 @; not:
 
-无论列表的引用形式是否会被点号-括号消除规则正规化，@racket[qoute]
+无论列表的引述形式是否会被点号-括号消除规则正规化，@racket[qoute]
 形式都可以与点号形式配合使用：
 
 @interaction[
@@ -237,7 +237,7 @@ map
 @; @racket[quote] by just putting @litchar{'} in front of a form to
 @; quote:
 
-如你所料，你可以将 @racket[quote] 简写为将 @litchar{'} 放在表达式前面来引用它：
+如你所料，你可以将 @racket[quote] 简写为将 @litchar{'} 放在表达式前面来引述它：
 
 @interaction[
 '(1 2 3)
@@ -256,7 +256,7 @@ map
 在文档中，表达式中的 @litchar{'} 及其后面的形式会打印为绿色，因为这种组合其实初春贯彻常量表达式。
 在 DrRacket 中，只有 @litchar{'} 会显示为绿色。DrRacket 要更加精准正确，因为 @racket[quote]
 的意思会随表达式的上下文而不同。然而在文档中，我们通常假定标准的绑定是在作用域内的，
-因此为了更加清楚，我们就把引用的形式渲染成了绿色。
+因此为了更加清楚，我们就把引述的形式渲染成了绿色。
 
 @; A @litchar{'} expands to a @racket[quote] form in quite a literal
 @; way. You can see this if you put a @litchar{'} in front of a form that has a
@@ -333,7 +333,7 @@ Racket 的语法并不是直接根据字符流来定义的，而是由两个层�
 @; One consequence of the read layer for expressions is that you can use
 @; the dot notation in expressions that are not quoted forms:
 
-读取层作用于表达式的一个结果是，你可以在非引用形式的表达式中使用点号记法：
+读取层作用于表达式的一个结果是，你可以在非引述形式的表达式中使用点号记法：
 
 @interaction[
 (eval:alts (+ 1 . @#,racket[(2)]) (+ 1 2))
