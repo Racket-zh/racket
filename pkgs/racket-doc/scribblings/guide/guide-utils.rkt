@@ -69,3 +69,8 @@
 (define r6rs @elem{R@superscript{6}RS})
 (define r5rs @elem{R@superscript{5}RS})
 
+(define (trans-note by . s)
+  (apply margin-note
+    (decode-content (append (list "译注：")
+                            s
+                            (list newline "—————" by)))))
