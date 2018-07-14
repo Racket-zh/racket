@@ -105,7 +105,7 @@ Racket 的序对数据类型和它与列表的关系，连同打印时的点号�
 @;------------------------------------------------------------------------
 @; @section[#:tag "quoting-lists"]{Quoting Pairs and Symbols with @racket[quote]}
 
-@section[#:tag "quoting-lists"]{用 @racket[quote] 引述序对和符号}
+@section[#:tag "quoting-lists"]{用 @racket[quote] 来@idefterm{引述}序对和符号}
 
 @; A list prints with a quote mark before it, but if an element of a list
 @; is itself a list, then no quote mark is printed for the inner list:
