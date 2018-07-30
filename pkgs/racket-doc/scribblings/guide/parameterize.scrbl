@@ -3,7 +3,9 @@
 
 @(define param-eval (make-base-eval))
 
-@title[#:tag "parameterize"]{Dynamic Binding: @racket[parameterize]}
+@; @title[#:tag "parameterize"]{Dynamic Binding: @racket[parameterize]}
+
+@title[#:tag "parameterize"]{动态绑定：@racket[parameterize]}
 
 @refalso["parameters"]{@racket[parameterize]}
 

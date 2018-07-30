@@ -2,7 +2,7 @@
 @(require scribble/manual scribble/eval "guide-utils.rkt"
           (for-label racket/match))
 
-@title[#:tag "case"]{Simple Dispatch: @racket[case]}
+@title[#:tag "case"]{简单分派：@racket[case]}
 
 The @racket[case] form dispatches to a clause by matching the result
 of an expression to the values for the clause:

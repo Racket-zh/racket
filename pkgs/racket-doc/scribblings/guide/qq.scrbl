@@ -4,7 +4,9 @@
 @(define qq (racket quasiquote))
 @(define uq (racket unquote))
 
-@title[#:tag "qq"]{Quasiquoting: @racket[quasiquote] and @racketvalfont{`}}
+@; @title[#:tag "qq"]{Quasiquoting: @racket[quasiquote] and @racketvalfont{`}}
+
+@title[#:tag "qq"]{准引述：@racket[quasiquote] 与 @racketvalfont{`}}
 
 @refalso["quasiquote"]{@racket[quasiquote]}
 
@@ -40,29 +42,29 @@ certain patterns.
 ]
 
 Or even to cheaply construct expressions programmatically. (Of course, 9 times out of 10,
-you should be using a @seclink["macros"]{macro} to do this 
+you should be using a @seclink["macros"]{macro} to do this
 (the 10th time being when you're working through
 a textbook like @hyperlink["http://www.cs.brown.edu/~sk/Publications/Books/ProgLangs/"]{PLAI}).)
 
 @examples[(define (build-exp n)
             (add-lets n (make-sum n)))
-          
+
           (eval:alts
            (define (add-lets n body)
              (cond
                [(zero? n) body]
                [else
-                (#,qq 
+                (#,qq
                  (let ([(#,uq (n->var n)) (#,uq n)])
                    (#,uq (add-lets (- n 1) body))))]))
            (define (add-lets n body)
              (cond
                [(zero? n) body]
                [else
-                (quasiquote 
+                (quasiquote
                  (let ([(unquote (n->var n)) (unquote n)])
                    (unquote (add-lets (- n 1) body))))])))
-          
+
           (eval:alts
            (define (make-sum n)
              (cond
@@ -95,17 +97,17 @@ to have just a single @racket[let] expression and a single @racket[+] expression
 
 @examples[(eval:alts
            (define (build-exp n)
-             (add-lets 
+             (add-lets
               n
-              (#,qq (+ (#,(racket unquote-splicing) 
+              (#,qq (+ (#,(racket unquote-splicing)
                         (build-list
                          n
                          (位 (x) (n->var (+ x 1)))))))))
            (define (build-exp n)
              (add-lets
               n
-              (quasiquote (+ (unquote-splicing 
-                              (build-list 
+              (quasiquote (+ (unquote-splicing
+                              (build-list
                                n
                                (位 (x) (n->var (+ x 1))))))))))
           (eval:alts
@@ -115,15 +117,15 @@ to have just a single @racket[let] expression and a single @racket[+] expression
                     (build-list
                      n
                      (位 (n)
-                       (#,qq 
+                       (#,qq
                         [(#,uq (n->var (+ n 1))) (#,uq (+ n 1))]))))
                 (#,uq body))))
            (define (add-lets n body)
              (quasiquote
               (let (unquote
-                    (build-list 
+                    (build-list
                      n
-                     (位 (n) 
+                     (位 (n)
                        (quasiquote
                         [(unquote (n->var (+ n 1))) (unquote (+ n 1))]))))
                 (unquote body)))))

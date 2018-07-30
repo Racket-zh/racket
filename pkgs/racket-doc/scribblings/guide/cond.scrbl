@@ -1,7 +1,9 @@
 #lang scribble/doc
 @(require scribble/manual scribble/eval "guide-utils.rkt")
 
-@title[#:tag "conditionals"]{Conditionals}
+@; @title[#:tag "conditionals"]{Conditionals}
+
+@title[#:tag "conditionals"]{条件分支}
 
 Most functions used for branching, such as @racket[<] and
 @racket[string?], produce either @racket[#t] or @racket[#f]. Racket's

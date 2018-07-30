@@ -1,7 +1,9 @@
 #lang scribble/doc
 @(require scribble/manual scribble/eval "guide-utils.rkt")
 
-@title[#:tag "begin"]{Sequencing}
+@; @title[#:tag "begin"]{Sequencing}
+
+@title[#:tag "begin"]{序列}
 
 Racket programmers prefer to write programs with as few side-effects
 as possible, since purely functional code is more easily tested and
