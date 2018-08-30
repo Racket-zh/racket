@@ -6,7 +6,7 @@
 
 @; @title[#:tag "qq"]{Quasiquoting: @racket[quasiquote] and @racketvalfont{`}}
 
-@title[#:tag "qq"]{×¼ÒýÊö£º@racket[quasiquote] Óë @racketvalfont{`}}
+@title[#:tag "qq"]{å‡†å¼•è¿°ï¼š@racket[quasiquote] ä¸Ž @racketvalfont{`}}
 
 @refalso["quasiquote"]{@racket[quasiquote]}
 

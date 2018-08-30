@@ -18,7 +18,8 @@
          refdetails/gory
          refsecref
          ext-refsecref
-         r5rs r6rs)
+         r5rs r6rs
+         trans-note)
 
 (define Quick
   (other-manual '(lib "scribblings/quick/quick.scrbl")))
@@ -73,4 +74,4 @@
   (apply margin-note
     (decode-content (append (list "译注：")
                             s
-                            (list newline "—————" by)))))
+                            (list "\n—————" by)))))
