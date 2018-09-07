@@ -15,7 +15,7 @@
           make-continuation-prompt-tag
           continuation-prompt-tag?
           default-continuation-prompt-tag
-          root-continuation-prompt-tag
+          unsafe-root-continuation-prompt-tag
           call-with-continuation-prompt
           call-with-continuation-barrier
           abort-current-continuation
@@ -28,8 +28,10 @@
           unsafe-call-with-composable-continuation/no-wind
 
           with-continuation-mark
-          call/cm ; not exported to Racket
-          call-with-immediate-continuation-mark
+          (rename [call-with-immediate-continuation-mark/inline
+                   call-with-immediate-continuation-mark]
+                  [call-with-immediate-continuation-mark
+                   call-with-immediate-continuation-mark/proc])
           continuation-mark-set-first
           continuation-mark-set->list
           continuation-mark-set->list*
@@ -45,6 +47,7 @@
 
           make-engine
           engine-block
+          engine-timeout
           engine-return
           current-engine-state  ; not exported to Racket
           set-ctl-c-handler! ; not exported to Racket
@@ -136,10 +139,12 @@
           extract-procedure ; not exported to Racket
           procedure-arity-includes?
           procedure-arity
+          procedure-arity-mask
           procedure-result-arity
           procedure-extract-target
           procedure-closure-contents-eq?
           procedure-reduce-arity
+          procedure-reduce-arity-mask
           procedure-rename
           procedure->method
           procedure-arity?
@@ -182,6 +187,7 @@
           raise-mismatch-error
           raise-range-error
           raise-arity-error
+          raise-arity-mask-error
           raise-result-arity-error
           raise-type-error
           raise-binding-result-arity-error ; not exported to Racket
@@ -450,6 +456,8 @@
           make-phantom-bytes
           set-phantom-bytes!
           set-garbage-collect-notify! ; not exported to Racket
+          unsafe-add-collect-callbacks
+          unsafe-remove-collect-callbacks
 
           ;; not the same as Racket will executors:
           (rename
@@ -473,6 +481,13 @@
           unsafe-list-tail
           unsafe-list-ref
           unsafe-cons-list
+
+          unsafe-char=?
+          unsafe-char<?
+          unsafe-char>?
+          unsafe-char>=?
+          unsafe-char<=?
+          unsafe-char->integer
 
           unsafe-fx+
           unsafe-fx-
@@ -554,12 +569,17 @@
           unsafe-extfl->fx unsafe-fx->extfl unsafe-extflsqrt
           unsafe-extflvector-length unsafe-extflvector-ref unsafe-extflvector-set!
 
-          place-enabled? place? place-channel? place-break
-          place-channel-get place-channel-put place-sleep
-          place-channel place-dead-evt place-kill place-message-allowed?
-          dynamic-place place-wait place-pumper-threads place-shared?
+          set-start-place!           ; not exported to Racket
+          fork-place                 ; not exported to Racket
+          start-place                ; not exported to Racket
+          place-enabled?
+          place-shared?
           unsafe-get-place-table
-          unsafe-add-post-custodian-shutdown
+          unsafe-make-place-local unsafe-place-local-ref unsafe-place-local-set!
+          place-local-register-ref   ; not exported to Racket
+          place-local-register-set!  ; not exported to Racket
+          place-local-register-init! ; not exported to Racket
+          place-exit                 ; not exported to Racket
 
           _bool _bytes _short_bytes _double _double* _fixint _fixnum _float _fpointer _gcpointer
           _int16 _int32 _int64 _int8 _longdouble _pointer _scheme _stdbool _void
@@ -576,9 +596,10 @@
           ptr-set! saved-errno set-cpointer-tag! set-ptr-offset! vector->cpointer
           unsafe-register-process-global
           (rename [ffi-lib* ffi-lib])
-          set-ffi-get-lib-and-obj! ; not exported to Racket
-          poll-async-callbacks ; not exported to Racket
+          set-ffi-get-lib-and-obj!        ; not exported to Racket
+          poll-async-callbacks            ; not exported to Racket
           set-async-callback-poll-wakeup! ; not exported to Racket
+          set-foreign-eval!               ; not exported to racket
 
           unsafe-unbox
           unsafe-unbox*
@@ -619,6 +640,7 @@
           unsafe-struct-set!
           unsafe-struct*-ref
           unsafe-struct*-set!
+          unsafe-struct? ; not exported to racket
 
           unsafe-s16vector-ref
           unsafe-s16vector-set!
@@ -665,8 +687,11 @@
 
   (include "rumble/define.ss")
   (include "rumble/virtual-register.ss")
-  (include "rumble/version.ss")
+  (include "rumble/begin0.ss")
   (include "rumble/syntax-rule.ss")
+  (include "rumble/lock.ss")
+  (include "rumble/thread-local.ss")
+  (include "rumble/version.ss")
   (include "rumble/check.ss")
   (include "rumble/constant.ss")
   (include "rumble/hash-code.ss")
@@ -680,16 +705,15 @@
   (include "rumble/object-name.ss")
   (include "rumble/arity.ss")
   (include "rumble/intmap.ss")
-  (include "rumble/lock.ss")
   (include "rumble/hash.ss")
   (include "rumble/datum.ss")
   (include "rumble/thread-cell.ss")
-  (include "rumble/begin0.ss")
   (include "rumble/pthread.ss")
   (include "rumble/control.ss")
   (include "rumble/interrupt.ss")
   (include "rumble/parameter.ss")
   (include "rumble/engine.ss")
+  (include "rumble/source.ss")
   (include "rumble/error.ss")
   (include "rumble/srcloc.ss")
   (include "rumble/boolean.ss")
@@ -726,6 +750,7 @@
   ;; the the following line will cause the error to loop with another error, etc.,
   ;; probably without printing anything:
   (set-base-exception-handler!)
+  (init-place-locals!)
   (register-as-place-main!)
   (set-collect-handler!)
   (set-primitive-applicables!)

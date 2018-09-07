@@ -14,11 +14,16 @@
          "filesystem-change-evt/main.rkt"
          "security/main.rkt"
          "envvar/main.rkt"
+         "sha/main.rkt"
          "subprocess/main.rkt"
          "network/main.rkt"
          "foreign/main.rkt"
          "unsafe/main.rkt"
-         "run/main.rkt")
+         "run/main.rkt"
+         "port/parameter.rkt"
+         (only-in "host/rktio.rkt"
+                  rktio-place-init!)
+         "port/place.rkt")
 
 (provide (all-from-out "port/main.rkt")
          (all-from-out "path/main.rkt")
@@ -34,10 +39,18 @@
          (all-from-out "filesystem-change-evt/main.rkt")
          (all-from-out "security/main.rkt")
          (all-from-out "envvar/main.rkt")
+         (all-from-out "sha/main.rkt")
          (all-from-out "subprocess/main.rkt")
          (all-from-out "network/main.rkt")
          (all-from-out "foreign/main.rkt")
          (all-from-out "unsafe/main.rkt")
-         (all-from-out "run/main.rkt"))
+         (all-from-out "run/main.rkt")
+         make-place-ports+fds
+         io-place-init!)
+
+(define (io-place-init! in-fd out-fd err-fd cust plumber)
+  (sandman-place-init!)
+  (rktio-place-init!)
+  (init-current-ports! in-fd out-fd err-fd cust plumber))
 
 (module main racket/base)

@@ -3256,6 +3256,11 @@ static void wait_ffi_lock(Scheme_Object *lock)
                  (uintptr_t)scheme_make_integer(scheme_current_place_id))) {
       /* obtained lock the fast way */
       break;
+    } else if (!scheme_place_can_receive()) {
+      /* We can get here while trying to terminate a place and run
+         custodian callbacks or other shutdown actions, and since
+         the place is shutting down, we can't commuincate with other
+         places; since we can't pause nicely, just spin */
     } else {
       Scheme_Object *owner, *new_val;
       owner = SCHEME_VEC_ELS(lock)[1];
@@ -3701,12 +3706,14 @@ static Scheme_Object *ffi_call_or_curry(const char *who, int curry, int argc, Sc
   GC_CAN_IGNORE ffi_cif *cif;
   int i, nargs, save_errno;
   Scheme_Object *lock = scheme_false;
+  Scheme_Performance_State perf_state;
 # ifdef MZ_USE_PLACES
   int orig_place = MZ_USE_FFIPOLL_COND;
 # define FFI_CALL_VEC_SIZE 9
 # else /* MZ_USE_PLACES undefined */
 # define FFI_CALL_VEC_SIZE 8
 # endif /* MZ_USE_PLACES */
+  scheme_performance_record_start(&perf_state);
   if (!curry) {
     cp = unwrap_cpointer_property(argv[ARGPOS(0)]);
     if (!SCHEME_FFIANYPTRP(cp))
@@ -3783,6 +3790,8 @@ static Scheme_Object *ffi_call_or_curry(const char *who, int curry, int argc, Sc
 # endif /* MZ_USE_PLACES */
   scheme_register_finalizer(data, free_fficall_data, cif, NULL, NULL);
   a[0] = data;
+
+  scheme_performance_record_end("comp-ffi-call", &perf_state);
 
   if (curry) {
     return scheme_make_prim_closure_w_arity(make_ffi_call_from_curried,
@@ -4137,6 +4146,7 @@ static Scheme_Object *ffi_callback_or_curry(const char *who, int curry, int argc
   GC_CAN_IGNORE closure_and_cif *cl_cif_args;
   GC_CAN_IGNORE ffi_callback_t do_callback;
   GC_CAN_IGNORE void *callback_data;
+  Scheme_Performance_State perf_state;
 # ifdef MZ_USE_MZRT
   int keep_queue = 0;
   void *constant_reply = NULL;
@@ -4163,6 +4173,8 @@ static Scheme_Object *ffi_callback_or_curry(const char *who, int curry, int argc
     /* all checks are done */
     return NULL;
   }
+
+  scheme_performance_record_start(&perf_state);
 
   if (((argc > ARGPOS(5)) && SCHEME_TRUEP(argv[ARGPOS(5)]))) {
 #   ifdef MZ_USE_MZRT
@@ -4264,6 +4276,8 @@ static Scheme_Object *ffi_callback_or_curry(const char *who, int curry, int argc
   else
 # endif /* MZ_USE_MZRT */
   scheme_register_finalizer(data, free_cl_cif_args, cl_cif_args, NULL, NULL);
+
+  scheme_performance_record_end("comp-ffi-back", &perf_state);
 
   return (Scheme_Object*)data;
 #undef ARGPOS

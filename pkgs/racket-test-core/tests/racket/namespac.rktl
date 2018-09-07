@@ -147,12 +147,16 @@
 
 (test #f
       variable-reference->module-path-index (#%variable-reference test))
-(test (module-path-index-join ''#%runtime #f)
+(test (module-path-index-join ''#%kernel #f)
       variable-reference->module-path-index (#%variable-reference +))
 (require (only-in racket/unsafe/ops
                   [unsafe-fx+ $$unsafe-fx+]))
 (test (module-path-index-join ''#%unsafe #f)
       variable-reference->module-path-index (#%variable-reference $$unsafe-fx+))
+
+(test #t variable-reference-constant? (#%variable-reference cons))
+(require (only-in ffi/unsafe _bool))
+(test #t variable-reference-constant? (#%variable-reference _bool))
 
 ;; ----------------------------------------
 

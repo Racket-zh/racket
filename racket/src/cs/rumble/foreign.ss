@@ -471,12 +471,12 @@
    [(types abi alignment)
     (let ([make-decls
            (escapes-ok
-             (lambda (id)
-               (let-values ([(reps decls) (types->reps types)])
+             (lambda (id next!-id)
+               (let-values ([(reps decls) (types->reps types next!-id)])
                  (append decls
                          `((define-ftype ,id
                              (struct ,@(map (lambda (rep)
-                                              `[,(gensym) ,rep])
+                                              `[,(next!-id) ,rep])
                                             reps))))))))])
       (let-values ([(size alignment) (ctypes-sizeof+alignof types alignment)])
         (create-compound-ctype 'struct
@@ -493,12 +493,12 @@
             types)
   (let ([make-decls
          (escapes-ok
-           (lambda (id)
-             (let-values ([(reps decls) (types->reps types)])
+           (lambda (id next!-id)
+             (let-values ([(reps decls) (types->reps types next!-id)])
                (append decls
                        `((define-ftype ,id
                            (union ,@(map (lambda (rep)
-                                           `[,(gensym) ,rep])
+                                           `[,(next!-id) ,rep])
                                          reps))))))))]
         [size (apply max (map ctype-sizeof types))]
         [alignment (apply max (map ctype-alignof types))])
@@ -516,8 +516,8 @@
   (check who exact-nonnegative-integer? count)
   (let ([make-decls
          (escapes-ok
-           (lambda (id)
-             (let-values ([(reps decls) (types->reps (list type))])
+           (lambda (id next!-id)
+             (let-values ([(reps decls) (types->reps (list type) next!-id)])
                (append decls
                        `((define-ftype ,id
                            (array ,count ,(car reps))))))))]
@@ -1192,11 +1192,11 @@
             (duplicate-argument "source for copy" copy-from (car args))
             (loop (cdr args) count type (car args) mode fail-mode))]
        [(malloc-mode? (car args))
-        (if copy-from
+        (if mode
             (duplicate-argument "mode" mode (car args))
             (loop (cdr args) count type copy-from (car args) fail-mode))]
        [(eq? (car args) 'failok)
-        (if copy-from
+        (if fail-mode
             (duplicate-argument "failure mode" fail-mode (car args))
             (loop (cdr args) count type copy-from mode (car args)))]
        [else
@@ -1226,7 +1226,7 @@
     (let* ([bstr (make-bytevector size)]
            [p (make-cpointer bstr #f)])
       (lock-object bstr)
-      (the-foreign-guardian p (lambda () (unlock-object bstr)))
+      (with-global-lock (the-foreign-guardian p (lambda () (unlock-object bstr))))
       p)]
    [else
     (raise-unsupported-error 'malloc
@@ -1270,7 +1270,8 @@
 
 (define the-foreign-guardian (make-guardian))
 
-;; Can be called in any host thread
+;; Can be called in any host thread, but all other
+;; threads are stopped
 (define (poll-foreign-guardian)
   (let ([v (the-foreign-guardian)])
     (when v
@@ -1278,6 +1279,17 @@
       (poll-foreign-guardian))))
 
 ;; ----------------------------------------
+
+(define eval/foreign
+  (lambda (expr mode)
+    (call-with-system-wind (lambda () (eval expr)))))
+
+(define (set-foreign-eval! proc)
+  (set! eval/foreign proc))
+
+;; Cache generated code for an underlying foreign call or callable shape:
+(define-thread-local ffi-expr->code (make-weak-hash))         ; expr to weak cell of code
+(define-thread-local ffi-code->expr (make-weak-eq-hashtable)) ; keep exprs alive as long as code lives
 
 (define/who ffi-call
   (case-lambda
@@ -1336,22 +1348,29 @@
                                      (if (eq? host-rep 'array)
                                          'void*
                                          host-rep))]
+         [next!-id (let ([counter 0])
+                     ;; Like `gensym`, but deterministic --- and doesn't
+                     ;; have to be totally unique, as long as it doesn't
+                     ;; collide with other code that we generate
+                     (lambda ()
+                       (set! counter (add1 counter))
+                       (string->symbol (string-append "type_" (number->string counter)))))]
          [ids (map (lambda (in-type)
                      (and (by-value? in-type)
-                          (gensym)))
+                          (next!-id)))
                    in-types)]
          [ret-id (and (by-value? out-type)
-                      (gensym))]
+                      (next!-id))]
          [decls (let loop ([in-types in-types] [ids ids] [decls '()])
                   (cond
                    [(null? in-types) decls]
                    [(car ids)
-                    (let ([id-decls ((compound-ctype-get-decls (car in-types)) (car ids))])
+                    (let ([id-decls ((compound-ctype-get-decls (car in-types)) (car ids) next!-id)])
                       (loop (cdr in-types) (cdr ids) (append decls id-decls)))]
                    [else
                     (loop (cdr in-types) (cdr ids) decls)]))]
          [ret-decls (if ret-id
-                        ((compound-ctype-get-decls out-type) ret-id)
+                        ((compound-ctype-get-decls out-type) ret-id next!-id)
                         '())]
          [ret-size (and ret-id (ctype-sizeof out-type))]
          [gen-proc+ret-maker+arg-makers
@@ -1362,7 +1381,7 @@
                           (lambda (to-wrap)
                             (,(if call? 'foreign-procedure 'foreign-callable)
                              ,conv
-                             ,@(if (or blocking? async-apply) '(__thread) '())
+                             ,@(if (or blocking? async-apply) '(__collect_safe) '())
                              to-wrap
                              ,(map (lambda (in-type id)
                                      (if id
@@ -1385,7 +1404,16 @@
                                                (make-ftype-pointer ,id p))))
                                      ids)
                                 '())))])
-            (call-with-system-wind (lambda () (eval expr))))]
+            (let* ([wb (with-interrupts-disabled
+                        (weak-hash-ref ffi-expr->code expr #f))]
+                   [code (if wb (car wb) #!bwp)])
+              (if (eq? code #!bwp)
+                  (let ([code (eval/foreign expr (if call? 'comp-ffi-call 'comp-ffi-back))])
+                    (hashtable-set! ffi-code->expr (car code) expr)
+                    (with-interrupts-disabled
+                     (weak-hash-set! ffi-expr->code expr (weak-cons code #f)))
+                    code)
+                  code)))]
          [gen-proc (car gen-proc+ret-maker+arg-makers)]
          [ret-maker (cadr gen-proc+ret-maker+arg-makers)]
          [arg-makers (cddr gen-proc+ret-maker+arg-makers)]
@@ -1473,15 +1501,15 @@
                             [(void*) (cpointer-address v)]
                             [else v]))))))])))
 
-(define (types->reps types)
+(define (types->reps types next!-id)
   (let loop ([types types] [reps '()] [decls '()])
     (cond
      [(null? types) (values (reverse reps) decls)]
      [else
       (let ([type (car types)])
         (if (compound-ctype? type)
-            (let* ([id (gensym)]
-                   [id-decls ((compound-ctype-get-decls type) id)])
+            (let* ([id (next!-id)]
+                   [id-decls ((compound-ctype-get-decls type) id next!-id)])
               (loop (cdr types) (cons id reps) (append id-decls decls)))
             (loop (cdr types) (cons (ctype-host-rep type) reps) decls)))])))
 
@@ -1500,6 +1528,9 @@
 (define-virtual-register place-thread-category PLACE-KNOWN-THREAD)
 (define (register-as-place-main!)
   (place-thread-category PLACE-MAIN-THREAD)
+  (foreign-place-init!))
+
+(define (foreign-place-init!)
   (current-async-callback-queue (make-async-callback-queue (make-mutex)
                                                            (make-condition)
                                                            '())))
@@ -1632,7 +1663,7 @@
         (let* ([code (make-code proc)]
                [cb (create-callback code)])
           (lock-object code)
-          (the-foreign-guardian cb (lambda () (unlock-object code)))
+          (with-global-lock (the-foreign-guardian cb (lambda () (unlock-object code))))
           cb)))]))
 
 ;; ----------------------------------------
@@ -1687,23 +1718,19 @@
 ;; ----------------------------------------
 
 (define process-global-table (make-hashtable equal-hash-code equal?))
-(define process-table-lock (make-mutex))
 
 (define (unsafe-register-process-global key val)
-  (with-interrupts-disabled
-   (mutex-acquire process-table-lock)
-   (let ([result (cond
-                  [(not val)
-                   (hashtable-ref process-global-table key #f)]
-                  [else
-                   (let ([old-val (hashtable-ref process-global-table key #f)])
-                     (cond
-                      [(not old-val)
-                       (hashtable-set! process-global-table key val)
-                       #f]
-                      [else old-val]))])])
-     (mutex-release process-table-lock)
-     result)))
+  (with-global-lock
+   (cond
+    [(not val)
+     (hashtable-ref process-global-table key #f)]
+    [else
+     (let ([old-val (hashtable-ref process-global-table key #f)])
+       (cond
+        [(not old-val)
+         (hashtable-set! process-global-table key val)
+         #f]
+        [else old-val]))])))
 
 ;; ----------------------------------------
 

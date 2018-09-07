@@ -31,14 +31,15 @@
 
 (provide jitify-schemified-linklet)
 
+(struct convert-mode (sizes called? lift? no-more-conversions?))
+
 (define lifts-id (gensym 'jits))
 
 (define (jitify-schemified-linklet v
                                    need-extract?
                                    need-lift?
                                    convert-size-threshold ; #f or a number; see above
-                                   extractable-annotation
-                                   reannotate)
+                                   extractable-annotation)
 
   ;; Constucts a closed `lambda` form as wrapped with
   ;; `extractable-annotaton` and generates an application of
@@ -133,16 +134,10 @@
       (match v
         [`(lambda ,args . ,body)
          (define new-body (jitify-schemified-body body (plain-add-args env args)))
-         (if (for/and ([old (in-list body)]
-                       [new (in-list new-body)])
-               (eq? old new))
-             v
-             (reannotate v `(lambda ,args . ,new-body)))]
+         (reannotate v `(lambda ,args . ,new-body))]
         [`(let* ,bindings ,body)
          (define new-body (loop body (add-bindings env bindings)))
-         (if (eq? body new-body)
-             v
-             (reannotate v `(let* ,bindings ,new-body)))])))
+         (reannotate v `(let* ,bindings ,new-body))])))
 
   (define (jitify-schemified-body body env)
     (define top-env
@@ -151,8 +146,8 @@
           (match v
             [`(variable-set! ,var-id ,id . ,_)
              (hash-set env (unwrap id) `(variable-ref ,(unwrap var-id)))]
-            [`(define ,_ (begin (variable-set! ,var-id ,id . ,_) (void)))
-             (hash-set env (unwrap id) `(variable-ref ,(unwrap var-id)))]
+            [`(define ,_ (begin (variable-set! . ,vs) (void)))
+             (loop `(variable-set! . ,vs) env)]
             [`(define ,id ,rhs) (plain-add-args env id)]
             [`(define-values ,ids ,rhs) (plain-add-args env ids)]
             [`(begin . ,vs)
@@ -162,8 +157,13 @@
     (let loop ([body body])
       (for/list ([v (in-list body)])
         (match v
-          [`(variable-set! ,var-id ,id . ,_) v]
-          [`(define ,_ (begin (variable-set! ,var-id ,id . ,_) (void))) v]
+          [`(variable-set! ,var-id ,id ',constance)
+           (when constance
+             ;; From now on, a direct reference is ok
+             (set! top-env (hash-set top-env (unwrap id) '#:direct)))
+           v]
+          [`(define ,_ (begin (variable-set! . ,vs) (void)))
+           (car (loop (list `(variable-set! . ,vs))))]
           [`(define ,id ,rhs)
            ;; If there's a direct reference to `id` in `rhs`, then
            ;; `id` must not be mutable
@@ -679,8 +679,6 @@
   ;; If there's a size threshold, then a convert mode is a
   ;; `convert-mode` instance.
 
-  (struct convert-mode (sizes called? lift? no-more-conversions?))
-  
   (define (init-convert-mode v)
     (cond
       [convert-size-threshold
@@ -872,5 +870,4 @@
                               #t
                               #t ; need-lift?
                               #f ; size threshold
-                              wrapped
-                              (lambda (v u) u))))
+                              wrapped)))

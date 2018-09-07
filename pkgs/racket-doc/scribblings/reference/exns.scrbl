@@ -316,6 +316,17 @@ message.
 ]}
 
 
+@defproc[(raise-arity-mask-error [name (or/c symbol? procedure?)]
+                                 [mask exact-integer?]
+                                 [arg-v any/c] ...)
+         any]{
+
+The same as @racket[raise-arity-error], but using the arity representation
+described with @racket[procedure-arity-mask].
+
+@history[#:added "7.0.0.11"]}
+
+
 @defproc[(raise-result-arity-error [name (or/c symbol? #f)]
                                    [arity-v exact-nonnegative-integer?]
                                    [detail-str (or/c string? #f)]
@@ -988,7 +999,10 @@ The fields of a @racket[srcloc] instance are as follows:
  @item{@racket[span] --- The number of covered positions (counts from
  0) or @racket[#f] (unknown).}
 
-]}
+]
+
+See @secref["print-compiled"] for information about the treatment of
+@racket[srcloc] values that are embedded in compiled code.}
 
 
 @defproc[(srcloc->string [srcloc srcloc?]) (or/c string? #f)]{

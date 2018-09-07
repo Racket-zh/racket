@@ -1,8 +1,9 @@
 #lang racket/base
 (require "../common/queue.rkt"
+         "place-local.rkt"
          "check.rkt"
          "internal-error.rkt"
-         "engine.rkt"
+         "host.rkt"
          "sandman.rkt"
          "parameter.rkt"
          "evt.rkt"
@@ -83,6 +84,13 @@
 
            break-max))
 
+;; Exports needed by "place.rkt":
+(module* for-place #f
+  (provide root-thread
+           do-break-thread
+           break>?
+           thread-did-work!))
+
 ;; ----------------------------------------
 
 (struct thread node (name
@@ -122,9 +130,10 @@
    #:suspend! (lambda (t i-cb r-cb) (thread-deschedule! t #f i-cb r-cb))
    #:resume! (lambda (t v) (thread-reschedule! t) v))
   #:property prop:evt (lambda (t) (wrap-evt (get-thread-dead-evt t)
-                                            (lambda (v) t))))
+                                            (lambda (v) t)))
+  #:property prop:object-name (struct-field-index name))
 
-(define root-thread #f)
+(define-place-local root-thread #f)
 
 ;; ----------------------------------------
 ;; Thread creation
@@ -148,7 +157,7 @@
   (define t (thread 'none ; node prev
                     'none ; node next
                     
-                    (gensym)
+                    (object-name proc)
                     e
                     p
                     #f ; sleeping
@@ -342,10 +351,10 @@
 (define (thread-dead-evt? v)
   (dead-evt? v))
 
-(define/who get-thread-dead-evt
+(define get-thread-dead-evt
   (let ([thread-dead-evt
          (lambda (t)
-           (check who thread? t)
+           (check 'thread-dead-evt thread? t)
            (atomically
             (unless (thread-dead-evt t)
               (set-thread-dead-evt! t (dead-evt (get-thread-dead-sema t)))))
@@ -677,7 +686,7 @@
 ;; all threads again. Accumulate a table of threads that we don't need
 ;; to poll because we've tried them since the most recent thread
 ;; performed work:
-(define poll-done-threads #hasheq())
+(define-place-local poll-done-threads #hasheq())
 
 (define (thread-did-no-work!)
   (set! poll-done-threads (hash-set poll-done-threads (current-thread) #t)))
@@ -700,7 +709,7 @@
 (define break-enabled-default-cell (make-thread-cell #t))
 
 ;; For disabling breaks, such as through `unsafe-start-atomic`:
-(define break-suspend 0)
+(define-place-local break-suspend 0)
 (define current-break-suspend
   (case-lambda
     [() break-suspend]
@@ -725,7 +734,11 @@
 ;; `check-for-break` should be called.
 (define (check-for-break)
   (define t (current-thread))
-  (when t ; allow `check-for-break` before threads are running
+  (when (and
+         ;; allow `check-for-break` before threads are running:
+         t
+         ;; quick pre-test before going atomic:
+         (thread-pending-break t))
     ((atomically
       (cond
         [(and (thread-pending-break t)

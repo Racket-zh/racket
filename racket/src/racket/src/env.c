@@ -370,6 +370,7 @@ static void init_unsafe(Scheme_Startup_Env *env)
   scheme_init_unsafe_number(env);
   scheme_init_unsafe_numarith(env);
   scheme_init_unsafe_numcomp(env);
+  scheme_init_unsafe_char(env);
   scheme_init_unsafe_list(env);
   scheme_init_unsafe_hash(env);
   scheme_init_unsafe_vector(env);
@@ -444,6 +445,10 @@ static Scheme_Env *place_instance_init(void *stack_base, int initial_main_os_thr
   scheme_init_thread_lwc();
 
   scheme_init_compenv_places();
+
+#ifdef MZ_USE_JIT
+  scheme_init_jitprep();
+#endif
 
 #ifdef TIME_STARTUP_PROCESS
   printf("pre-process @ %" PRIdPTR "\n", scheme_get_process_milliseconds());
@@ -531,6 +536,8 @@ static Scheme_Env *place_instance_init(void *stack_base, int initial_main_os_thr
   scheme_init_resolver_config();
 
   scheme_starting_up = 0;
+
+  scheme_performance_record_end("boot", NULL);
 
   --scheme_current_thread->suspend_break; /* created with breaks suspended */
 

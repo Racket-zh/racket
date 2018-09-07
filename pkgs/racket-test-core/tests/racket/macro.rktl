@@ -2278,5 +2278,67 @@
     (local-expand #'(#%plain-module-begin (m #f)) 'module-begin '())))
 
 ;; ----------------------------------------
+;; Check order of complaints for unbound identifiers
+
+(define (check-complain-first m)
+  (err/rt-test (eval m)
+               (lambda (x)
+                 (regexp-match? #rx"complain-about-this-one" (exn-message x)))))
+
+(check-complain-first '(module m racket/base
+                         (define (f a)
+                           (complain-about-this-one (not-about-this-one)))))
+(check-complain-first '(module m racket/base
+                         (require (for-syntax racket/base))
+                         (define-syntax (f a)
+                           (complain-about-this-one (not-about-this-one)))))
+
+;; ----------------------------------------
+;; Make sure "currently expanding" is not propagated to threads
+
+(let ()
+  (define-syntax (m stx)
+    (syntax-case stx ()
+      [(_ e)
+       (let ([ok? #t])
+         (sync (thread (lambda ()
+                         (local-expand #'e 'expression null)
+                         (set! ok? #f))))
+         (if ok? #''ok #''oops))]))
+  
+  (test 'ok values (m 1)))
+
+;; ----------------------------------------
+
+(test 'ok 'scope-for-letrec
+      (let ([x 'ok])
+        (letrec-syntax ([foo (lambda (stx)
+                               #'x)])
+          (define x 2)
+          (foo))))
+
+
+(test 1 'scope-for-letrec
+      (let ()
+        (define-syntaxes (stash restore)
+          (let ([stash #f])
+            (values
+             ;; stash
+             (lambda (stx)
+               (syntax-case stx ()
+                 [(_ arg)
+                  (begin (set! stash (syntax-local-introduce #'arg))
+                         #'arg)]))
+             ;; restore
+             (lambda (stx)
+               (syntax-local-introduce stash)))))
+
+        (define x 1)
+
+        (letrec-values ([(foo) (stash x)])
+          (define x 2)
+          (restore))))
+
+;; ----------------------------------------
 
 (report-errs)

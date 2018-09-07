@@ -3823,32 +3823,44 @@
 ;; Types related to arithmetic
 
 (let ()
-  (define (check-real-op op [can-omit? #t] [can-multi? #t])
+  (define (check-real-op op [can-omit? #t] [can-multi? #t]
+                         #:implies-real? [implies-real? #t]
+                         #:needs-two-args? [needs-two-args? #f])
     (test-comp `(lambda (x y)
                  (list (,op x y)
-                       (real? x)
-                       (real? y)
                        (number? x)
                        (number? y)))
                `(lambda (x y)
                  (list (,op x y)
                        #t
-                       #t
-                       #t
                        #t)))
+    (when implies-real?
+      (test-comp `(lambda (x y)
+                    (list (,op x y)
+                          (real? x)
+                          (real? y)
+                          (number? x)
+                          (number? y)))
+                 `(lambda (x y)
+                    (list (,op x y)
+                          #t
+                          #t
+                          #t
+                          #t))))
     (when can-multi?
-      (test-comp `(lambda (x y z w)
-                   (list (,op x y z w)
-                         (real? x)
-                         (real? y)
-                         (real? z)
-                         (real? w)))
-                 `(lambda (x y z w)
-                   (list (,op x y z w)
-                         #t
-                         #t
-                         #t
-                         #t))))
+      (let ([? (if implies-real? 'real? 'number?)])
+        (test-comp `(lambda (x y z w)
+                      (list (,op x y z w)
+                            (,? x)
+                            (,? y)
+                            (,? z)
+                            (,? w)))
+                   `(lambda (x y z w)
+                      (list (,op x y z w)
+                            #t
+                            #t
+                            #t
+                            #t)))))
     (when can-omit?
       (test-comp `(lambda (x y)
                    (if (and (real? x) (real? y))
@@ -3859,12 +3871,26 @@
                  `(lambda (x y)
                    (if (and (real? x) (real? y))
                        (,op x y)
-                       (error "bad"))))))
+                       (error "bad"))))
+      ;; Make sure error is not discarded when the number
+      ;; of arguments is wrong
+      (when needs-two-args?
+        (test-comp `(lambda (x)
+                      (if (real? x)
+                          (let ([tmp (,op x)])
+                            'whatever)
+                          (error "bad")))
+                 `(lambda (x)
+                    (if (real? x)
+                        (,op x)
+                        (error "bad")))))))
+
   (check-real-op 'quotient #f #f)
   (check-real-op 'remainder #f #f)
   (check-real-op 'modulo #f #f)
   (check-real-op 'max)
   (check-real-op 'min)
+  (check-real-op '= #:implies-real? #f)
   (check-real-op '<)
   (check-real-op '>)
   (check-real-op '<=)
@@ -6332,6 +6358,16 @@
        (lambda (m)
          (set! m m)
          m)))
+
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Regresssion test for an optimizer bug
+
+(define (late-inline-with-single-use-that-turns-out-to-be-movable g)
+  (let ([x (g)])
+    (let ([proc (lambda (y) (list x y))])
+      (let ([only (lambda () ((car (list proc)) '(5)))])
+        (let ([also-only only])
+          (also-only))))))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

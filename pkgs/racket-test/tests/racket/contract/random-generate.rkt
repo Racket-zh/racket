@@ -2,6 +2,7 @@
 
 (require racket/contract
          racket/contract/private/generate-base
+         (only-in racket/list empty? cons?)
          rackunit
          racket/math
          (for-syntax racket/base))
@@ -43,6 +44,7 @@
 
 (check-not-exn (λ () (test-contract-generation exact-nonnegative-integer?)))
 (check-not-exn (λ () (test-contract-generation natural?)))
+(check-not-exn (λ () (test-contract-generation symbol?)))
 (check-not-exn (λ () (test-contract-generation (integer-in 0 100))))
 (check-not-exn (λ () (test-contract-generation (integer-in 0 (expt 2 1000)))))
 (check-not-exn (λ () (test-contract-generation (integer-in 0 #f))))
@@ -114,6 +116,21 @@
 (check-not-exn
  (λ ()
    (test-contract-generation
+    empty?)))
+
+(check-not-exn
+ (λ ()
+   (test-contract-generation
+    pair?)))
+
+(check-not-exn
+ (λ ()
+   (test-contract-generation
+    cons?)))
+
+(check-not-exn
+ (λ ()
+   (test-contract-generation
     (letrec ([c (or/c null? (cons/c real? (recursive-contract c)))])
       c))))
 (check-not-exn
@@ -159,6 +176,7 @@
 
 (check-exn exn:fail? (λ () ((test-contract-generation (-> char? integer?)) 0)))
 (check-not-exn (λ () ((test-contract-generation (-> integer? integer?)) 1)))
+(check-not-exn (λ () ((test-contract-generation (-> any/c (-> any) any)) 0 void)))
 (check-not-exn (λ () ((test-contract-generation (-> integer? any)) 1)))
 (check-not-exn (λ () ((test-contract-generation (-> integer? (-> integer? any))) 1)))
 (check-not-exn (λ () ((test-contract-generation (-> (-> integer? any) integer?))
@@ -412,3 +430,65 @@
   (check-not-exn (λ () (test-contract-generation even-list/c/generate)))
   (check-exercise 2 void? even-list/c)
   (check-exercise 2 void? even-list/c/generate))
+
+(let () ;; test the default value of generate / exercise for make-chaperone-contract
+  (define custom-any/c
+    (make-chaperone-contract
+     #:late-neg-projection
+     (λ (b) (λ (v np) v))))
+  (define any->any/c
+    (make-chaperone-contract
+     #:late-neg-projection
+     (λ (b)
+       (λ (v np)
+         (chaperone-procedure v values impersonator-prop:contracted any->any/c)))))
+  (define/contract proc any->any/c values)
+  (check-exn cannot-generate-exn? (λ () (test-contract-generation custom-any/c)))
+  (check-not-exn (λ () (contract-exercise proc))))
+
+(let ()
+  (struct impersonate-any/c-struct ()
+    #:property prop:contract
+    (build-contract-property
+     #:late-neg-projection
+     (λ (ctc) (λ (b) (λ (v np) v)))))
+  (define impersonate-any/c (impersonate-any/c-struct))
+  (struct chaperone-proc?/c-struct ()
+    #:property prop:chaperone-contract
+    (build-chaperone-contract-property
+     #:late-neg-projection
+     (λ (ctc) (λ (b) (λ (v np) v)))))
+  (define chaperone-proc?/c (chaperone-proc?/c-struct))
+  (check-exn cannot-generate-exn? (λ () (test-contract-generation impersonate-any/c)))
+  (check-exn cannot-generate-exn?
+             (λ ()
+               (test-contract-generation
+                (->i ([n integer?])
+                     [_ (n) (λ (r) (eq? r (even? n)))]))))
+  ;; Testing the default return value for contract-struct-generate
+  (check-exn cannot-generate-exn? (λ () (test-contract-generation chaperone-proc?/c))))
+
+(check-exercise
+ 10
+ pos-exn?
+ (contract (-> integer? (-> integer? integer?))
+           (λ (x) (λ (y) #f))
+           'pos
+           'neg))
+
+(check-exercise
+ 10
+ pos-exn?
+ (contract (->i ([m integer?])
+                [result (-> integer? integer?)])
+           (λ (x) (λ (y) #f))
+           'pos
+           'neg))
+
+(check-exercise
+ 5
+ void?
+ (contract (-> (and/c #f #t) any)
+           (λ (_) 'thing)
+           'pos
+           'neg))

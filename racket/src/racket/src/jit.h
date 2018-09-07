@@ -548,7 +548,7 @@ void *scheme_jit_get_threadlocal_table();
 #  ifdef THREAD_LOCAL_USES_JIT_V2
 #   define mz_tl_addr(reg, addr) (jit_addi_p(reg, JIT_V2, addr))
 #   define mz_tl_addr_tmp(tmp_reg, addr) (void)0
-#   define mz_tl_addr_untmp(tmp_reg) 0
+#   define mz_tl_addr_untmp(tmp_reg) (void)0
 #   define mz_tl_tmp_reg(tmp_reg) (void)0
 #   define _mz_tl_str_p(addr, tmp_reg, reg) jit_stxi_p(addr, JIT_V2, reg)
 #   define _mz_tl_str_l(addr, tmp_reg, reg) jit_stxi_l(addr, JIT_V2, reg)
@@ -1474,6 +1474,7 @@ int scheme_generate_unboxing(mz_jit_state *jitter, int target);
 int scheme_generate_pop_unboxed(mz_jit_state *jitter);
 int scheme_generate_nary_arith(mz_jit_state *jitter, Scheme_App_Rec *app,
                                int arith, int cmp, Branch_Info *for_branch, int branch_short,
+                               int unsafe_fx, int unsafe_fl,
                                int dest);
 int scheme_generate_alloc_double(mz_jit_state *jitter, int inline_retry, int dest);
 int scheme_generate_arith(mz_jit_state *jitter, Scheme_Object *rator, Scheme_Object *rand, Scheme_Object *rand2, 
@@ -1612,7 +1613,7 @@ int scheme_jit_check_closure_extflonum_bit(Scheme_Lambda *data, int pos, int del
 
 Scheme_Object *scheme_extract_global(Scheme_Object *o, Scheme_Native_Closure *nc, int local_only);
 Scheme_Object *scheme_extract_closure_local(Scheme_Object *obj, mz_jit_state *jitter, int extra_push, int get_constant);
-Scheme_Object *scheme_specialize_to_constant(Scheme_Object *obj, mz_jit_state *jitter, int extra_push);
+Scheme_Object *scheme_specialize_to_constant(Scheme_Object *obj, mz_jit_state *jitter, int extra_push, int extract_static);
 
 void scheme_jit_register_traversers(void);
 #ifdef MZ_USE_LWC

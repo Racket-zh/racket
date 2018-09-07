@@ -1,6 +1,7 @@
 #lang racket/base
-(require "atomic.rkt"
-         "engine.rkt"
+(require "place-local.rkt"
+         "atomic.rkt"
+         "host.rkt"
          "internal-error.rkt"
          "sandman.rkt"
          "parameter.rkt"
@@ -9,23 +10,33 @@
          (submod "thread.rkt" scheduling)
          "system-idle-evt.rkt"
          "exit.rkt"
-         "future.rkt")
+         "future.rkt"
+         "custodian.rkt"
+         (submod "custodian.rkt" scheduling))
 
 ;; Many scheduler details are implemented in "thread.rkt", but this
 ;; module handles the thread selection, thread swapping, and
 ;; process sleeping.
 
 (provide call-in-main-thread
-         set-atomic-timeout-callback!)
+         call-in-another-main-thread
+         set-atomic-timeout-callback!
+         set-check-place-activity!)
 
 (define TICKS 100000)
 
-(define process-milliseconds 0)
+(define-place-local process-milliseconds 0)
 
 ;; Initializes the thread system:
 (define (call-in-main-thread thunk)
   (make-initial-thread thunk)
   (select-thread!))
+
+;; Initializes the thread system in a new place:
+(define (call-in-another-main-thread c thunk)
+  (make-another-initial-thread-group)
+  (set-root-custodian! c)
+  (call-in-main-thread thunk))
 
 ;; ----------------------------------------
 
@@ -36,11 +47,12 @@
                           pending-callbacks))
     (host:poll-will-executors)
     (check-external-events 'fast)
+    (check-place-activity)
     (when (and (null? callbacks)
                (all-threads-poll-done?)
                (waiting-on-external-or-idle?))
       (or (check-external-events 'slow)
-          (post-idle)
+          (try-post-idle)
           (process-sleep)))
     (define child (thread-group-next! g))
     (cond
@@ -88,8 +100,10 @@
                (set-thread-engine! t e))
              (select-thread!)]
             [else
-             ;; Swap out when the atomic region ends:
-             (set-end-atomic-callback! engine-block)
+             ;; Swap out when the atomic region ends and at a point
+             ;; where host-system interrupts are not disabled (i.e.,
+             ;; don't use `engine-block` instead of `engine-timeout`):
+             (set-end-atomic-callback! engine-timeout)
              (loop e)])))))))
 
 (define (maybe-done callbacks)
@@ -194,6 +208,12 @@
   ;; Maybe some thread can proceed:
   (thread-did-work!))
 
+(define (try-post-idle)
+  (and (post-idle)
+       (begin
+         (thread-did-work!)
+         #t)))
+
 ;; ----------------------------------------
 
 (define (accum-cpu-time! t)
@@ -204,9 +224,15 @@
 
 ;; ----------------------------------------
 
-(define atomic-timeout-callback #f)
+(define-place-local atomic-timeout-callback #f)
 
 (define (set-atomic-timeout-callback! cb)
   (begin0
     atomic-timeout-callback
     (set! atomic-timeout-callback cb)))
+
+;; ----------------------------------------
+
+(define check-place-activity void)
+(define (set-check-place-activity! proc)
+  (set! check-place-activity proc))

@@ -1,5 +1,6 @@
 #lang racket/base
-(require "check.rkt"
+(require "place-local.rkt"
+         "check.rkt"
          "internal-error.rkt"
          "atomic.rkt")
 
@@ -8,6 +9,7 @@
          thread-group?
          make-thread-group
          current-thread-group
+         make-another-initial-thread-group
 
          ;; Used by scheduler
          root-thread-group
@@ -31,15 +33,22 @@
                            [chain #:mutable] ; children remaining to be scheduled round-robin
                            [chain-end #:mutable]))
 
-(define root-thread-group (thread-group 'none 'none #f #f #f #f))
+(define (make-root-thread-group)
+  (thread-group 'none 'none #f #f #f #f))
 
-(define num-threads-in-groups 0)
+(define-place-local root-thread-group (make-root-thread-group))
+
+(define-place-local num-threads-in-groups 0)
 
 (define/who current-thread-group
   (make-parameter root-thread-group
                   (lambda (v)
                     (check who thread-group? v)
                     v)))
+
+(define (make-another-initial-thread-group)
+  (set! root-thread-group (make-root-thread-group))
+  (current-thread-group root-thread-group))
 
 (define/who (make-thread-group [parent (current-thread-group)])
   (check who thread-group? parent)

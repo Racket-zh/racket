@@ -340,5 +340,44 @@
   (test "ok" get-output-string o))
 
 ;; ----------------------------------------
+;; Check that some values are allowed in a srcloc source
+;; in printed compiled code, and some values are not
+
+(let ()
+  (define (try v [result-v v] #:ok? [ok? #t])
+    (define-values (i o) (make-pipe))
+    (define c (compile `,(srcloc v 1 2 3 4)))
+    (cond
+     [ok?
+      (write c o)
+      (test result-v
+            srcloc-source
+            (parameterize ([current-load-relative-directory (build-path (current-directory) "sub")])
+              (eval (parameterize ([read-accept-compiled #t])
+                      (read i)))))]
+     [else
+      (err/rt-test (write c o) (lambda (exn) (and (exn:fail? exn)
+                                                  (regexp-match? #rx"cannot marshal" (exn-message exn)))))]))
+
+  (try #f)
+  (try 'apple)
+  (try "apple")
+  (try #"apple")
+  (try (string->path "apple") "apple")
+  (try (build-path 'up) "..")
+  (try (build-path 'same) ".")
+  (try (build-path 'up "apple") ".../apple")
+  (try (build-path "x" 'up "apple") ".../apple")
+  (try (build-path "apple" 'up) ".../apple/..")
+  (try (build-path "apple" 'same) ".../apple/.")
+  (try (build-path "x" "apple" 'up) ".../apple/..")
+  (try (build-path "x" "apple" 'same) ".../apple/.")
+  (let ([d (car (filesystem-root-list))])
+    (try (build-path d 'up) (path->string (build-path d 'up))))
+
+  (try 7 #:ok? #f)
+  (try (box 7) #:ok? #f))
+
+;; ----------------------------------------
 
 (report-errs)

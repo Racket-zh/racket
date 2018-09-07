@@ -328,6 +328,11 @@ static MZ_INLINE Scheme_Object *c_int_add(Scheme_Object *a, Scheme_Object *b)
   return scheme_make_integer(SCHEME_INT_VAL(a) + SCHEME_INT_VAL(b));
 }
 
+static MZ_INLINE Scheme_Object *c_int_mult(Scheme_Object *a, Scheme_Object *b)
+{
+  return scheme_make_integer(SCHEME_INT_VAL(a) * SCHEME_INT_VAL(b));
+}
+
 static MZ_INLINE Scheme_Object *c_int_sub(Scheme_Object *a, Scheme_Object *b)
 {
   return scheme_make_integer(SCHEME_INT_VAL(a) - SCHEME_INT_VAL(b));
@@ -474,6 +479,11 @@ static MZ_INLINE Scheme_Object *c_bytes_ref(Scheme_Object *v, Scheme_Object *i)
 {
   int c = SCHEME_BYTE_STR_VAL(v)[SCHEME_INT_VAL(i)];
   return scheme_make_integer(c);
+}
+
+static MZ_INLINE Scheme_Object *c_make_box(Scheme_Object *v)
+{
+  return scheme_box(v);
 }
 
 static MZ_INLINE Scheme_Object *c_box_ref(Scheme_Object *b)

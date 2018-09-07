@@ -13,7 +13,8 @@
          "buffer-mode.rkt"
          "close.rkt"
          "count.rkt"
-         "check.rkt")
+         "check.rkt"
+         "place-message.rkt")
 
 (provide open-input-fd
          open-output-fd
@@ -21,7 +22,7 @@
          fd-port-fd
          maybe-fd-data-extra)
 
-(struct fd-data (fd extra)
+(struct fd-data (fd extra input?)
   #:property prop:file-stream (lambda (fdd) (fd-data-fd fdd))
   #:property prop:file-truncate (case-lambda
                                   [(fdd pos)
@@ -29,7 +30,10 @@
                                     (rktio_set_file_size rktio
                                                          (fd-data-fd fdd)
                                                          pos)
-                                    "error setting file size")]))
+                                    "error setting file size")])
+  #:property prop:data-place-message (lambda (port)
+                                       (lambda ()
+                                         (fd-port->place-message port))))
 
 (define (maybe-fd-data-extra data)
   (and (fd-data? data)
@@ -51,11 +55,12 @@
 (define (open-input-fd fd name
                        #:extra-data [extra-data #f]
                        #:on-close [on-close void]
-                       #:fd-refcount [fd-refcount (box 1)])
+                       #:fd-refcount [fd-refcount (box 1)]
+                       #:custodian [cust (current-custodian)])
   (define-values (port buffer-control)
     (open-input-peek-via-read
      #:name name
-     #:data (fd-data fd extra-data)
+     #:data (fd-data fd extra-data #t)
      #:read-in
      ;; in atomic mode
      (lambda (dest-bstr start end copy?)
@@ -81,7 +86,7 @@
                         [() (buffer-control)]
                         [(pos) (buffer-control pos)]))))
   (define custodian-reference
-    (register-fd-close (current-custodian) fd fd-refcount port))
+    (register-fd-close cust fd fd-refcount port))
   port)
 
 ;; ----------------------------------------
@@ -92,15 +97,16 @@
                         #:extra-data [extra-data #f]
                         #:buffer-mode [buffer-mode 'infer]
                         #:fd-refcount [fd-refcount (box 1)]
-                        #:on-close [on-close void])
+                        #:on-close [on-close void]
+                        #:plumber [plumber (current-plumber)]
+                        #:custodian [cust (current-custodian)])
   (define buffer (make-bytes 4096))
   (define buffer-start 0)
   (define buffer-end 0)
   (define flush-handle
-    (plumber-add-flush! (current-plumber)
+    (plumber-add-flush! plumber
                         (lambda (h)
-                          (flush-buffer-fully #f)
-                          (plumber-flush-handle-remove! h))))
+                          (flush-buffer-fully #f))))
   
   (when (eq? buffer-mode 'infer)
     (if (rktio_fd_is_terminal rktio fd)
@@ -157,7 +163,7 @@
   (define port
     (make-core-output-port
      #:name name
-     #:data (fd-data fd extra-data)
+     #:data (fd-data fd extra-data #f)
 
      #:evt evt
      
@@ -222,7 +228,7 @@
                      [(mode) (set! buffer-mode mode)])))
 
   (define custodian-reference
-    (register-fd-close (current-custodian) fd fd-refcount port))
+    (register-fd-close cust fd fd-refcount port))
 
   (set-fd-evt-closed! evt (core-port-closed port))
 
@@ -333,3 +339,36 @@
                                (set-closed-state! closed))
                              #f
                              #f))
+
+;; ----------------------------------------
+
+(define (fd-port->place-message port)
+  (start-atomic)
+  (cond
+    [(port-closed? port) #f]
+    [else
+     (define input? (input-port? port))
+     (define fd-dup (dup-port-fd port))
+     (define name (core-port-name port))
+     (end-atomic)
+     (lambda ()
+       (atomically
+        (define fd (claim-dup fd-dup))
+        (if input?
+            (open-input-fd fd name)
+            (open-output-fd fd name))))]))
+
+  ;; in atomic mode
+(define (dup-port-fd port)
+  (define fd (fd-data-fd (core-port-data port)))
+  (define new-fd (rktio_dup rktio fd))
+  (when (rktio-error? new-fd)
+    (end-atomic)
+    (raise-rktio-error 'place-channel-put new-fd "error during duping file descriptor"))
+  (define fd-dup (box new-fd))
+  ;; FIXME: possible leak if place message is never received
+  fd-dup)
+
+;; in atomic mode
+(define (claim-dup fd-dup)
+  (unbox fd-dup))
