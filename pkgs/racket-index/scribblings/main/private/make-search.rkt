@@ -97,7 +97,7 @@
                                       (cons (cons c n) span-classes))
                                 n)])])
            (cons `(,c . ,(compact-body b)) (compact r)))]
-        [`(,x . ,r) 
+        [`(,x . ,r)
          (cons (xexpr->string x) (compact r))]))
     ;; generate javascript array code
     (let loop ([body (compact xexprs)])
@@ -115,7 +115,7 @@
   (define l-all
     (for/list ([i (if as-empty?
                       null
-                      (get-index-entries sec ri))] 
+                      (get-index-entries sec ri))]
                ;; don't index constructors (the class itself is already indexed)
                #:unless (constructor-index-desc? (list-ref i 3)))
       (set! idx (add1 idx))
@@ -123,16 +123,16 @@
       (define-values (tag texts elts desc) (apply values i))
       (define text (string-downcase (string-join texts)))
       (define-values (href html)
-        (let* ([e (add-between elts ", ")]
+        (let* ([e (add-between elts "、")]
                ;; !!HACK!! The index entry for methods should have the extra
                ;; text in it (when it does, this should go away)
                [e (if (method-index-desc? desc)
                     `(,@e ,(make-element "smaller"
                              `(" (method of "
-                               ,(make-element 
+                               ,(make-element
                                  symbol-color
                                  (list
-                                  (make-element 
+                                  (make-element
                                    value-link-color
                                    (list (symbol->string
                                           (exported-index-desc-name desc))))))
@@ -148,7 +148,7 @@
              (let (;; throw away tooltips, we don't need them
                    [body (match body
                            [`((span ((title ,label)) . ,body))
-                            (if (regexp-match? #rx"^Provided from: " label)
+                            (if (regexp-match? #rx"^提供自：" label)
                               body
                               ;; if this happens, this code should be updated
                               (error 'make-script
@@ -167,7 +167,7 @@
         (cond
           [(exported-index-desc? desc)
            (let ([libs (map lib->name (exported-index-desc-from-libs desc))])
-             (string-append* `("[" ,@(add-between libs ",") "]")))]
+             (string-append* `("[" ,@(add-between libs "，") "]")))]
           [(module-path-index-desc? desc)
             (cond
              [(language-index-desc? desc)
@@ -178,9 +178,9 @@
               "\"module\""])]
           [else "false"]))
       (and href
-           (string-append "[" (quote-string text) ","
-                          (quote-string href) ","
-                          html "," from-libs "]"))))
+           (string-append "[" (quote-string text) "，"
+                          (quote-string href) "，"
+                          html "，" from-libs "]"))))
   (define l (filter values l-all))
 
   (define user (if user-dir? "user_" ""))
@@ -201,7 +201,7 @@
           var plt_@,|user|span_classes = [
             @,@(add-between (map (lambda (x) (quote-string (car x)))
                                  (reverse span-classes))
-                            ",\n  ")
+                            "，\n  ")
           ];
           @||
           // this array has an entry of four items for each index link:
@@ -212,7 +212,7 @@
           // - from_lib is an array of module names for bound identifiers,
           //   or the string "module" for a module entry
           var plt_@,|user|search_data = [
-          @,@(add-between l ",\n")
+          @,@(add-between l "，\n")
           ];
           @||
           // array of pointers to the previous array, for items that are manuals
@@ -220,10 +220,10 @@
             @,@(let* ([ms (hash-map manual-refs cons)]
                       [ms (sort ms < #:key cdr)]
                       [ms (map (lambda (x)
-                                 (string-append (quote-string (car x)) ": "
+                                 (string-append (quote-string (car x)) "："
                                                 (number->string (cdr x))))
                                ms)])
-                 (add-between ms ",\n  "))};
+                 (add-between ms "，\n  "))};
           @||})))
 
   (for ([src (append (list search-script search-context-page)

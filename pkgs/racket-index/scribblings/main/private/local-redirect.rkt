@@ -180,7 +180,7 @@
 
 (define (js-hash-string s)
   ;; Needs to be the same as a hash function used for keys in JavaScript;
-  ;; the JavaScript implementation hash_string() above is based on 
+  ;; the JavaScript implementation hash_string() above is based on
   ;;  http://stackoverflow.com/questions/7616461/generate-a-hash-from-string-in-javascript-jquery
   (for/fold ([v 0]) ([c (in-string s)])
     (bitwise-and (+ (- (arithmetic-shift v 5) v) (char->integer c))
@@ -258,7 +258,7 @@
            (write-db o unsorted-db prefix suffix lt-suffix)
            (display (make-convert-all-links prefix suffix lt-suffix #f #t here-url 0) o)
            (fprintf o "\n~aconvert_all_links~a();\n" prefix suffix))))
-            
+
       (call-with-output-file*
        dest
        #:exists 'truncate/replace
@@ -299,7 +299,7 @@
     (style #f (list
                (js-addition (if (and user? (not main-at-user?))
                                 (path->url (build-path (find-doc-dir)
-                                                       "local-redirect" 
+                                                       "local-redirect"
                                                        "local-redirect.js"))
                                 (string->url "local-redirect.js")))
                (js-addition (string->url "local-user-redirect.js"))
