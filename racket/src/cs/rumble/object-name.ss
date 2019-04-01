@@ -35,12 +35,20 @@
         (n v)]))]
    [(#%procedure? v)
     (cond
-     [(arity-wrapper-procedure? v)
-      (extract-jit-procedure-name v)]
+     [(wrapper-procedure? v)
+      (extract-wrapper-procedure-name v)]
      [else
       (let ([name (#%$code-name (#%$closure-code v))])
         (and name
-             (string->symbol name)))])]
+             (cond
+              [(special-procedure-name-string? name)
+               ;; "[" is "no name", and any other
+               ;; "["-prefixed name is derived from the path
+               (let ([len (string-length name)])
+                 (and (fx> len 1)
+                      (string->symbol (substring name 1 len))))]
+              [else
+               (string->symbol name)])))])]
    [(impersonator? v)
     (object-name (impersonator-val v))]
    [(procedure? v)
@@ -56,7 +64,17 @@
 (define (struct-object-name v)
   (let ([rtd (record-rtd v)])
     (and
-     ;; Having an entry in `rtd-props` is a sign that
-     ;; this structure type was created with `make-struct-type`:
-     (with-global-lock* (hashtable-contains? rtd-props rtd))
+     ;; Having an entry in `rtd-props` is a sign that this structure
+     ;; type was created with `make-struct-type`, or it could be a
+     ;; prefab structure type
+     (with-global-lock*
+      (or (hashtable-contains? rtd-props rtd)
+          (getprop (record-type-uid rtd) 'prefab-key+count #f)))
      (object-name (record-rtd v)))))
+
+;; name starting with a square bracket is meant to
+;; encode a path or "no name"
+(define (special-procedure-name-string? n)
+  (and (string? n)
+       (fx> (string-length n) 0)
+       (char=? #\[ (string-ref n 0))))

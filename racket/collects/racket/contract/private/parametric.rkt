@@ -32,6 +32,7 @@
   #:property prop:custom-write custom-write-property-proc
   #:property prop:contract
   (build-contract-property
+   #:trusted trust-me
    #:name
    (lambda (c)
      `(parametric->/c ,(polymorphic-contract-vars c) ,(polymorphic-contract-body-src-exp c)))
@@ -88,7 +89,7 @@
               (barrier/c negative? var)))
           (define protector
             (apply (polymorphic-contract-body c) instances))
-          (((get/build-late-neg-projection protector) blame) p neg-party)))
+           (((get/build-late-neg-projection protector) blame) p neg-party)))
 
        (lambda (p neg-party)
          (unless (procedure? p)
@@ -119,6 +120,7 @@
   #:property prop:custom-write custom-write-property-proc
   #:property prop:contract
   (build-contract-property
+   #:trusted trust-me
    #:name (lambda (c) (barrier-contract-name c))
    #:first-order (λ (c) (barrier-contract-pred c))
    #:stronger (λ (this that) (eq? this that))

@@ -1,28 +1,3 @@
-/*
-  Racket
-  Copyright (c) 2004-2018 PLT Design Inc.
-  Copyright (c) 2000-2001 Matthew Flatt
-
-    This library is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Library General Public
-    License as published by the Free Software Foundation; either
-    version 2 of the License, or (at your option) any later version.
-
-    This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Library General Public License for more details.
-
-    You should have received a copy of the GNU Library General Public
-    License along with this library; if not, write to the Free
-    Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
-    Boston, MA 02110-1301 USA.
-
-  libscheme
-  Copyright (c) 1994 Brent Benson
-  All rights reserved.
-*/
-
 /* The bulk of this file is the number parser, an insane bit of code
    that would probably be better off implemented via lex+yacc, except
    the error messages are better this way.
@@ -382,7 +357,7 @@ static Scheme_Object *read_special_number(const mzchar *str, int pos)
 /* Exponent threshold for obvious infinity. Must be at least
    max(MAX_FAST_FLOATREAD_LEN, MAX_FLOATREAD_PRECISION_DIGITS) more
    than the larget possible FP exponent. */
-#define CHECK_INF_EXP_THRESHOLD(extfl) (extfl ? 6000 : 400)
+#define CHECK_INF_EXP_THRESHOLD(extfl) (extfl ? 32768 : 2048)
 
 /* Don't bother reading more than the following number of digits in a
    floating-point mantissa: */
@@ -445,7 +420,10 @@ static double STRTOD(const char *orig_c, char **f)
 	if (!isdigit(ch))
 	  return 0; /* not a digit - bad! */
 	else {
-	  e = (e * 10) + (ch - '0');
+          /* only increment e until we know if it is
+            infinity or zero to avoid overflow on e */
+          if (!is_zero && !is_infinity)
+            e = (e * 10) + (ch - '0');
 	  if (e > CHECK_INF_EXP_THRESHOLD(0)) {
 	    if (neg_exp || !is_nonzero)
 	      is_zero  = 1;
@@ -1574,11 +1552,11 @@ Scheme_Object *scheme_read_number(const mzchar *str, intptr_t len,
 	/* 0.0 => -0.0 */
 #ifdef MZ_USE_SINGLE_FLOATS
 	if (SCHEME_FLTP(n)) {
-	  n = scheme_make_float(-SCHEME_FLT_VAL(n));
+          n = scheme_nzerof;
 	}
 #endif
         if (SCHEME_DBLP(n)) {
-	  n = scheme_make_double(-SCHEME_DBL_VAL(n));
+	  n = scheme_nzerod;
         }
       }
     }

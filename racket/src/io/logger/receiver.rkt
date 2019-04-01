@@ -2,8 +2,11 @@
 (require "../common/check.rkt"
          "../../common/queue.rkt"
          "../host/thread.rkt"
+         "../host/pthread.rkt"
          "../host/rktio.rkt"
          "../string/convert.rkt"
+         "../path/system.rkt"
+         "../path/path.rkt"
          "level.rkt"
          "logger.rkt")
 
@@ -11,7 +14,9 @@
          make-log-receiver
          add-stderr-log-receiver!
          add-stdout-log-receiver!
-         log-receiver-send!)
+         add-syslog-log-receiver!
+         log-receiver-send!
+         receiver-add-topics)
 
 (struct log-receiver (filters))
 
@@ -21,56 +26,71 @@
 ;; ----------------------------------------
 
 (struct queue-log-receiver log-receiver (msgs     ; queue of messages ready for `sync` [if `waiters` is null]
-                                         waiters) ; queue of (box callback) to receive ready messages [if `msgs` is null]
+                                         waiters  ; queue of (box callback) to receive ready messages [if `msgs` is null]
+                                         backref) ; box to make a self reference to avoid GC of a waiting receiver
   #:reflection-name 'log-receiver
   #:property
   prop:receiver-send
   (lambda (lr msg)
-    ;; called in atomic mode and possibly in host interrupt handler,
-    ;; so anything we touch here should only be modified with
-    ;; interrupts disabled
-    (atomically/no-interrupts/no-wind
-     (define b (queue-remove! (queue-log-receiver-waiters lr)))
-     (cond
-       [b
-        (define select! (unbox b))
-        (set-box! b msg)
-        (select!)]
-       [else
-        (queue-add! (queue-log-receiver-msgs lr) msg)])))
+    ;; called in atomic mode
+    (define b (queue-remove! (queue-log-receiver-waiters lr)))
+    (cond
+      [b
+       (decrement-receiever-waiters! lr)
+       (define select! (unbox b))
+       (set-box! b msg)
+       (select!)]
+      [else
+       (queue-add! (queue-log-receiver-msgs lr) msg)]))
   #:property
   prop:evt
   (poller (lambda (lr ctx)
-            (define msg (atomically/no-interrupts/no-wind (queue-remove! (queue-log-receiver-msgs lr))))
+            (define msg (queue-remove! (queue-log-receiver-msgs lr)))
             (cond
               [msg
                (values (list msg) #f)]
               [else
                (define b (box (poll-ctx-select-proc ctx)))
-               (define n (atomically/no-interrupts/no-wind (queue-add! (queue-log-receiver-waiters lr) b)))
+               (define n (begin
+                           (increment-receiever-waiters! lr)
+                           (queue-add! (queue-log-receiver-waiters lr) b)))
                (values #f (control-state-evt
                            (wrap-evt async-evt (lambda (e) (unbox b)))
-                           (lambda () (atomically/no-interrupts/no-wind
-                                       (queue-remove-node! (queue-log-receiver-waiters lr) n)))
+                           (lambda ()
+                             (queue-remove-node! (queue-log-receiver-waiters lr) n)
+                             (decrement-receiever-waiters! lr))
                            void
                            (lambda ()
-                             (atomically/no-interrupts/no-wind
-                              (define msg (queue-remove! (queue-log-receiver-msgs lr)))
-                              (cond
-                                [msg
-                                 (set-box! b msg)
-                                 (values msg #t)]
-                                [else
-                                 (set! n (queue-add! (queue-log-receiver-waiters lr) b))
-                                 (values #f #f)])))))]))))
+                             (define msg (queue-remove! (queue-log-receiver-msgs lr)))
+                             (cond
+                               [msg
+                                (set-box! b msg)
+                                (values msg #t)]
+                               [else
+                                (increment-receiever-waiters! lr)
+                                (set! n (queue-add! (queue-log-receiver-waiters lr) b))
+                                (values #f #f)]))))]))))
 
 (define/who (make-log-receiver logger level . args)
   (check who logger? logger)
+  (define backref (box #f))
   (define lr (queue-log-receiver (parse-filters 'make-log-receiver (cons level args) #:default-level 'none)
                                  (make-queue)
-                                 (make-queue)))
-  (add-log-receiver! logger lr)
+                                 (make-queue)
+                                 backref))
+  (add-log-receiver! logger lr backref)
   lr)
+
+
+;; In atomic mode
+(define (decrement-receiever-waiters! lr)
+  (when (queue-empty? (queue-log-receiver-waiters lr))
+    (set-box! (queue-log-receiver-backref lr) #f)))
+
+;; In atomic mode
+(define (increment-receiever-waiters! lr)
+  (when (queue-empty? (queue-log-receiver-waiters lr))
+    (set-box! (queue-log-receiver-backref lr) lr)))
 
 ;; ----------------------------------------
 
@@ -95,7 +115,7 @@
   (define lr (stdio-log-receiver (parse-filters parse-who args #:default-level 'none)
                                  which))
   (atomically
-   (add-log-receiver! logger lr)
+   (add-log-receiver! logger lr #f)
    (set-logger-permanent-receivers! logger (cons lr (logger-permanent-receivers logger)))))
 
 (define/who (add-stderr-log-receiver! logger . args)
@@ -103,22 +123,48 @@
   
 (define/who (add-stdout-log-receiver! logger . args)
   (add-stdio-log-receiver! who logger args 'make-stdio-log-receiver RKTIO_STDOUT))
-  
+
 ;; ----------------------------------------
 
-(define (add-log-receiver! logger lr)
+(struct syslog-log-receiver log-receiver (cmd)
+  #:property
+  prop:receiver-send
+  (lambda (lr msg)
+    ;; called in atomic mode and possibly in host interrupt handler
+    (define bstr (bytes-append (string->bytes/utf-8 (vector-ref msg 1)) #"\n"))
+    (define pri
+      (case (vector-ref msg 0)
+        [(fatal) RKTIO_LOG_FATAL]
+        [(error) RKTIO_LOG_ERROR]
+        [(warning) RKTIO_LOG_WARNING]
+        [(info) RKTIO_LOG_INFO]
+        [else RKTIO_LOG_DEBUG]))
+    (rktio_syslog rktio pri #f bstr (syslog-log-receiver-cmd lr))))
+
+(define/who (add-syslog-log-receiver! logger . args)
+  (define lr (syslog-log-receiver (parse-filters 'make-syslog-log-receiver args #:default-level 'none)
+                                  (path-bytes (find-system-path 'run-file))))
+  (atomically
+   (add-log-receiver! logger lr #f)
+   (set-logger-permanent-receivers! logger (cons lr (logger-permanent-receivers logger)))))
+
+;; ----------------------------------------
+
+(define (add-log-receiver! logger lr backref)
   (atomically/no-interrupts/no-wind
-   ;; Add receiver to the logger's list, purning empty boxes
+   ;; Add receiver to the logger's list, pruning empty boxes
    ;; every time the list length doubles (roughly):
    (cond
      [(zero? (logger-prune-counter logger))
-      (set-logger-receiver-boxes! logger (cons (make-weak-box lr)
-                                               (for/list ([b (in-list (logger-receiver-boxes logger))]
-                                                          #:when (weak-box-value b))
-                                                 b)))
-      (set-logger-prune-counter! logger (max 8 (length (logger-receiver-boxes logger))))]
+      (set-logger-receiver-box+backrefs! logger
+                                         (cons (cons (make-weak-box lr) backref)
+                                               (for/list ([b+r (in-list (logger-receiver-box+backrefs logger))]
+                                                          #:when (weak-box-value (car b+r)))
+                                                 b+r)))
+      (set-logger-prune-counter! logger (max 8 (length (logger-receiver-box+backrefs logger))))]
      [else
-      (set-logger-receiver-boxes! logger (cons (make-weak-box lr) (logger-receiver-boxes logger)))
+      (set-logger-receiver-box+backrefs! logger (cons (cons (make-weak-box lr) backref)
+                                                      (logger-receiver-box+backrefs logger)))
       (set-logger-prune-counter! logger (sub1 (logger-prune-counter logger)))])
    ;; Increment the timestamp, so that wanted levels will be
    ;; recomputed on demand:
@@ -126,10 +172,27 @@
    (set-box! ts-box (add1 (unbox ts-box)))
    ;; Post a semaphore to report that wanted levels may have
    ;; changed:
-   (when (logger-level-sema logger)
-     (semaphore-post (logger-level-sema logger))
-     (set-logger-level-sema! logger #f))))
+   (define sema-box (logger-level-sema-box logger))
+   (when (unbox sema-box)
+     (semaphore-post (unbox sema-box))
+     (set-box! sema-box #f))))
 
 ;; Called in atomic mode and with interrupts disabled
-(define (log-receiver-send! r msg)
-  ((receiver-send-ref r) r msg))
+(define (log-receiver-send! r msg in-interrupt?)
+  (if (or (not in-interrupt?)
+          ;; We can run stdio loggers in atomic/interrupt mode:
+          (stdio-log-receiver? r))
+      ((receiver-send-ref r) r msg)
+      ;; Record any any other message for posting later:
+      (unsafe-add-pre-poll-callback! (lambda ()
+                                       ((receiver-send-ref r) r msg)))))
+
+;; ----------------------------------------
+
+(define (receiver-add-topics r topics default-level)
+  (let loop ([filters (log-receiver-filters r)] [topics topics])
+    (cond
+      [(pair? filters)
+       (loop (cdr filters) (hash-set topics (caar filters) #t))]
+      [else
+       (values topics (level-max default-level filters))])))

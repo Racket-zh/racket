@@ -40,6 +40,7 @@
          "collection-name.rkt"
          "private/format-error.rkt"
          "private/encode-relative.rkt"
+         "private/time.rkt"
          compiler/private/dep
          (only-in pkg/lib pkg-directory
                   pkg-single-collection))
@@ -201,14 +202,34 @@
 
   (define (done)
     (unless (null? errors)
-      (setup-printf #f "--- summary of errors ---")
+      (setup-printf #f (add-time "--- summary of errors ---"))
       (show-errors (current-error-port))
       (when (pause-on-errors)
         (eprintf "INSTALLATION FAILED.\nPress Enter to continue...\n")
         (read-line))
-      (exit 1))
+      (set! exit-code 1))
+    (manage-prevous-and-next)
     (exit exit-code))
 
+  (define (manage-prevous-and-next)
+    (define prev (previous-error-in-file))
+    (when (and prev (file-exists? prev))
+      (setup-printf #f (add-time "--- previous errors ---"))
+      (setup-printf #f "errors were~a reported by a previous process"
+                    (if (zero? exit-code) "" " also"))
+      (set! exit-code 1))
+    (define next (next-error-out-file))
+    (when next
+      (cond
+        [(zero? exit-code)
+         (delete-directory/files next #:must-exist? #f)]
+        [else
+         (call-with-output-file*
+          next
+          #:exists 'truncate/replace
+          (lambda (o) (fprintf o "Errors reported\n")))
+         (set! exit-code 0)])))
+      
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;;               Archive Unpacking               ;;
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -743,7 +764,7 @@
         (with-handlers ([exn:fail? (lambda (x) null)])
           (with-input-from-file path read)))
       (when (and (pair? deps) (list? deps))
-        (for ([s (in-list (cddr deps))])
+        (for ([s (in-list (cdddr deps))])
           (unless (external-dep? s)
               (define new-s (dep->path s))
               (when (path-string? new-s) (hash-set! dependencies new-s #t))))))
@@ -820,7 +841,7 @@
                 [else (void)])))))
 
   (define (clean-step)
-    (setup-printf #f "--- cleaning collections ---")
+    (setup-printf #f (add-time "--- cleaning collections ---"))
     (define dependencies (make-hash))
     ;; Main deletion:
     (for ([cc ccs-to-compile]) (clean-collection cc dependencies))
@@ -863,11 +884,12 @@
 
   (define (do-install-part part)
     (when (if (eq? part 'post) (call-post-install) (call-install))
-      (setup-printf #f (format "--- ~ainstalling collections ---"
-                               (case part
-                                 [(pre) "pre-"]
-                                 [(general) ""]
-                                 [(post) "post-"])))
+      (setup-printf #f (add-time
+                        (format "--- ~ainstalling collections ---"
+                                (case part
+                                  [(pre) "pre-"]
+                                  [(general) ""]
+                                  [(post) "post-"]))))
       (for ([cc ccs-to-call-installers])
         (let/ec k
           (begin-record-error cc (case part
@@ -887,7 +909,7 @@
                   (define p (build-path (cc-path cc) v))
                   (unless (or (file-exists? p)
                               (bytecode-file-exists? p))
-                    (error "installer file does not exista: " p)))))
+                    (error "installer file does not exist: " p)))))
             (define installer
               (with-handlers ([exn:fail?
                                (lambda (exn)
@@ -1059,6 +1081,7 @@
            (define dir  (cc-path cc))
            (define info (cc-info cc))
            (compile-directory-zos dir info
+                                  #:verbose (verbose)
                                   #:has-module-suffix? has-module-suffix?
                                   #:omit-root (cc-omit-root cc)
                                   #:managed-compile-zo caching-managed-compile-zo
@@ -1094,7 +1117,7 @@
                  #:group 'libs
                  #:namespace info-ns)])
         (lambda (p) (regexp-match? rx p))))
-    (setup-printf #f "--- compiling collections ---")
+    (setup-printf #f (add-time "--- compiling collections ---"))
     (if ((parallel-workers) . > . 1)
       (begin
         (when (or no-specific-collections?
@@ -1113,7 +1136,15 @@
                                  (collection-tree-map top-level-plt-collects
                                                       has-module-suffix?)))))
             (iterate-cct clean-cc cct)
-            (parallel-compile (parallel-workers) setup-fprintf handle-error cct)
+            (parallel-compile (parallel-workers) setup-fprintf handle-error cct
+                              #:use-places? (parallel-use-places)
+                              #:options (append
+                                         (if (not (current-compile-target-machine))
+                                             '(compile-any)
+                                             '())
+                                         (if (managed-recompile-only)
+                                             '(recompile-only)
+                                             '())))
             (for/fold ([gcs 0]) ([cc planet-dirs-to-compile])
               (compile-cc cc gcs has-module-suffix?)))))
       (with-specified-mode
@@ -1128,7 +1159,7 @@
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
   (define (make-info-domain-step)
-    (setup-printf #f "--- updating info-domain tables ---")
+    (setup-printf #f (add-time "--- updating info-domain tables ---"))
     ;; Each ht maps a collection root dir to an info-domain table. Even when
     ;; `collections-to-compile' is a subset of all collections, we only care
     ;; about those collections that exist in the same root as the ones in
@@ -1361,6 +1392,7 @@
   (define (doc:setup-scribblings latex-dest auto-start-doc?)
     (scr:call 'setup-scribblings
               (parallel-workers)
+              (parallel-use-places)
               name-str
               (if no-specific-collections? #f (map cc-path ccs-to-compile))
               latex-dest auto-start-doc? (make-user) (force-user-docs)
@@ -1369,7 +1401,7 @@
               setup-printf))
 
   (define (make-docs-step)
-    (setup-printf #f "--- building documentation ---")
+    (setup-printf #f (add-time "--- building documentation ---"))
     (set-doc:verbose)
     (with-handlers ([exn:fail?
                      (lambda (exn)
@@ -1382,7 +1414,7 @@
       (doc:setup-scribblings #f auto-start-doc?)))
 
   (define (doc-pdf-dest-step)
-    (setup-printf #f "--- building PDF documentation (via pdflatex) ---")
+    (setup-printf #f (add-time "--- building PDF documentation (via pdflatex) ---"))
     (define dest-dir (path->complete-path (doc-pdf-dest)))
     (unless (directory-exists? dest-dir)
       (make-directory dest-dir))
@@ -1413,7 +1445,7 @@
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
   (define (make-launchers-step)
-    (setup-printf #f "--- creating launchers ---")
+    (setup-printf #f (add-time "--- creating launchers ---"))
     (define (name-list l)
       (unless (list-of relative-path-string? l)
         (error "result is not a list of relative path strings:" l)))
@@ -1718,7 +1750,7 @@
                                fixup-lib
                                copy-user-lib)
     (define (make-libs-step)
-      (setup-printf #f (format "--- installing ~a ---" whats))
+      (setup-printf #f (add-time (format "--- installing ~a ---" whats)))
       (define installed-libs (make-hash))
       (define dests (make-hash))
       (for ([cc ccs-to-compile])
@@ -1993,7 +2025,7 @@
   ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
   (define (do-check-package-dependencies)
-    (setup-printf #f (format "--- checking package dependencies ---"))
+    (setup-printf #f (add-time (format "--- checking package dependencies ---")))
     (unless (check-package-dependencies (map cc-path ccs-to-compile)
                                         (map cc-collection ccs-to-compile)
                                         (map cc-main? ccs-to-compile)
@@ -2008,6 +2040,9 @@
                                                      'build
                                                      'run))))
                                         setup-printf setup-fprintf
+                                        (lambda (exn)
+                                          (set! exit-code 1)
+                                          (setup-printf #f "check failure: ~a" (exn->string exn)))
                                         (check-unused-dependencies)
                                         (fix-dependencies)
                                         (verbose)
@@ -2021,6 +2056,11 @@
 
   (setup-printf "version" "~a" (version))
   (setup-printf "platform" "~a [~a]" (cross-system-library-subpath #f) (cross-system-type 'gc))
+  (setup-printf "target machine" "~a" (or (current-compile-target-machine)
+                                          (cross-system-type 'target-machine)
+                                          'any))
+  (when (cross-installation?)
+    (setup-printf "cross-installation" "yes"))
   (setup-printf "installation name" "~a" (get-installation-name))
   (setup-printf "variants" "~a" (string-join (map symbol->string (available-mzscheme-variants)) ", "))
   (setup-printf "main collects" "~a" main-collects-dir)
@@ -2037,6 +2077,12 @@
     (setup-printf #f "  ~a" p))
   (when (use-user-specific-search-paths)
     (setup-printf #f "  ~a" (find-user-links-file)))
+  (let ([roots (current-compiled-file-roots)])
+    (unless (or (equal? roots '(same))
+                (equal? roots (build-path 'same)))
+      (setup-printf "compiled-file roots" "")
+      (for ([p roots])
+        (setup-printf #f "  ~a" p))))
   (setup-printf "main docs" "~a" (find-doc-dir))
 
   (when (and (not (null? (archives))) no-specific-collections?)

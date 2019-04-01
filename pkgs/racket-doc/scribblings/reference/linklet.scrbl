@@ -120,7 +120,9 @@ otherwise.}
                              [name any/c #f]
                              [import-keys #f #f]
                              [get-import #f #f]
-                             [options (listof (or/c 'serializable 'unsafe 'static)) '(serializable)])
+                             [options (listof (or/c 'serializable 'unsafe 'static
+                                                     'use-prompt 'uninterned-literal))
+                                      '(serializable)])
             linklet?]
            [(compile-linklet [form (or/c correlated? any/c)]
                              [name any/c]
@@ -128,7 +130,9 @@ otherwise.}
                              [get-import (or/c #f (any/c . -> . (values (or/c linklet? instance? #f)
                                                                         (or/c vector? #f))))
                                          #f]
-                             [options (listof (or/c 'serializable 'unsafe 'static)) '(serializable)])
+                             [options (listof (or/c 'serializable 'unsafe 'static
+                                                    'use-prompt 'uninterned-literal))
+                                      '(serializable)])
             (values linklet? vector?)])]{
 
 Takes an S-expression or @tech{correlated object} for a
@@ -190,27 +194,53 @@ at most once. Compilation with @racket['static] is intended to improve
 the performance of references within the linklet to defined and
 imported variables.
 
+If @racket['use-prompt] is included in @racket[options], then
+instantiating resulting linklet always wraps a prompt around each
+definition and immediate expression in the linklet. Otherwise,
+supplying @racket[#t] as the @racket[_use-prompt?] argument to
+@racket[instantiate-linklet] may only wrap a prompt around the entire
+instantiation.
+
+If @racket['uninterned-literal] is included in @racket[options], then
+literals in @racket[form] will not necessarily be interned via
+@racket[datum-intern-literal] when compiling or loading the linklet.
+Disabling the use of @racket[datum-intern-literal] can be especially
+useful of the linklet includes a large string or byte string constant
+that is not meant to be shared.
+
 The symbols in @racket[options] must be distinct, otherwise
-@exnraise[exn:fail:contract].}
+@exnraise[exn:fail:contract].
+
+@history[#:changed "7.1.0.8" @elem{Added the @racket['use-prompt] option.}
+         #:changed "7.1.0.10" @elem{Added the @racket['uninterned-literal] option.}]}
 
 
 @defproc*[([(recompile-linklet [linklet linklet?]
                                [name any/c #f]
                                [import-keys #f #f]
-                               [get-import (any/c . -> . (values (or/c linklet? #f)
-                                                                 (or/c vector? #f)))
-                                           (lambda (import-key) (values #f #f))])
+                               [get-import #f #f]
+                               [options (listof (or/c 'serializable 'unsafe 'static
+                                                      'use-prompt 'uninterned-literal))
+                                        '(serializable)])
             linklet?]
            [(recompile-linklet [linklet linklet?]
                                [name any/c]
                                [import-keys vector?]
-                               [get-import (any/c . -> . (values (or/c linklet? #f)
-                                                                 (or/c vector? #f)))
-                                           (lambda (import-key) (values #f #f))])
+                               [get-import (or/c (any/c . -> . (values (or/c linklet? #f)
+                                                                       (or/c vector? #f)))
+                                                 #f)
+                                           (lambda (import-key) (values #f #f))]
+                               [options (listof (or/c 'serializable 'unsafe 'static
+                                                      'use-prompt 'uninterned-literal))
+                                        '(serializable)])
              (values linklet? vector?)])]{
 
 Like @racket[compile-linklet], but takes an already-compiled linklet
-and potentially optimizes it further.}
+and potentially optimizes it further.
+
+@history[#:changed "7.1.0.6" @elem{Added the @racket[options] argument.}
+         #:changed "7.1.0.8" @elem{Added the @racket['use-prompt] option.}
+         #:changed "7.1.0.10" @elem{Added the @racket['uninterned-literal] option.}]}
 
 
 @defproc[(eval-linklet [linklet linklet?]) linklet?]{
@@ -252,9 +282,13 @@ each export. If @racket[target-instance] is provided as
 non-@racket[#f], its existing variables remain intact if they are not
 modified by a linklet definition.
 
-If @racket[use-prompt?] is true, then the evaluation each definition
-and expression in the linklet is wrapped in a @tech{prompt} in the
-same ways as an expression in a module body.}
+If @racket[use-prompt?] is true, then a a @tech{prompt} is wrapped
+around the linklet instantiation in same ways as an expression in a
+module body. If the linklet contains multiple definitions or immediate
+expressions, then a prompt may or may not be wrapped around each
+definition or expression; supply @racket['use-prompt] to
+@racket[compile-linklet] to ensure that a prompt is used around each
+definition and expression.}
 
 
 @defproc[(linklet-import-variables [linklet linklet?])
@@ -412,6 +446,38 @@ variable. If a variable for @racket[name] exists as constant, the
 @exnraise[exn:fail:contract].}
 
 
+@defproc[(instance-describe-variable! [instance instance?]
+                                      [name symbol?]
+                                      [desc-v any/c])
+          void?]{
+
+Registers information about @racket[name] in @racket[instance] that
+may be useful for compiling linklets where the instance is return via
+the @racket[_get-import] callback to @racket[compile-linklet]. The
+@racket[desc-v] description can be any value; the recognized
+descriptions depend on virtual machine, but may include the following:
+
+@itemlist[
+
+ @item{@racket[`(procedure ,arity-mask)] --- the value is always a
+       procedure that is not impersonated and not a structure, and its
+       arity in the style of @racket[procedure-arity-mask] is
+       @racket[arity-mask].}
+
+ @item{@racket[`(procedure/succeeds ,arity-mask)] --- like
+       @racket[`(procedure ,arity-mask)], but for a procedure that
+       never raises an exception of otherwise captures or escapes the
+       calling context.}
+
+ @item{@racket[`(procedure/pure ,arity-mask)] --- like
+       @racket[`(procedure/succeeds ,arity-mask)], but with no
+       observable side effects, so a call to the procedure can be
+       reordered.}
+
+]
+
+@history[#:added "7.1.0.8"]}
+
 @defproc[(variable-reference->instance [varref variable-reference?]
                                        [ref-site? any/c #f])
          (if ref-site? (or/c instance? #f symbol?) instance?)]{
@@ -453,7 +519,8 @@ primitive.}
                                                (or/c exact-nonnegative-integer? #f)
                                                (or/c exact-positive-integer? #f)
                                                (or/c exact-nonnegative-integer? #f)))
-                                #f])
+                                #f]
+                         [prop (or/c correlated? #f)])
           correlated?]
 @defproc*[([(correlated-property [stx correlated?]
                                  [key any/c]
@@ -476,4 +543,7 @@ recur through the given S-expression and convert pieces to
 simply wrapped around the immediate value. In contrast,
 @racket[correlated->datum] recurs through its argument (which is not
 necessarily a @tech{correlated object}) to discover any
-@tech{correlated objects} and convert them to plain S-expressions.}
+@tech{correlated objects} and convert them to plain S-expressions.
+
+@history[#:changed "7.6.0.6" @elem{Added the @racket[prop] argument
+                                   to @racket[datum->correlated].}]}

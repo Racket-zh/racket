@@ -1,28 +1,3 @@
-/*
-  Racket
-  Copyright (c) 2004-2018 PLT Design Inc.
-  Copyright (c) 1995-2001 Matthew Flatt
-
-    This library is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Library General Public
-    License as published by the Free Software Foundation; either
-    version 2 of the License, or (at your option) any later version.
-
-    This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Library General Public License for more details.
-
-    You should have received a copy of the GNU Library General Public
-    License along with this library; if not, write to the Free
-    Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
-    Boston, MA 02110-1301 USA.
-
-  libscheme
-  Copyright (c) 1994 Brent Benson
-  All rights reserved.
-*/
-
 /* This file implements the bytecode "resolve" pass, which converts
    the optimization IR to the evaluation bytecode --- where the main
    difference between the representations is to use stack addresses.
@@ -1663,7 +1638,6 @@ resolve_lambda(Scheme_Object *_lam, Resolve_Info *info,
   }
 
   /* Check possibility of unboxing arguments: */
-  closure_size = lam->closure_size;
   if (cl->arg_types) {
     int at_least_one = 0;
     for (i = lam->num_params; i--; ) {

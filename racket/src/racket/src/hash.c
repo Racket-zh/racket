@@ -1,33 +1,10 @@
-/*
-  Racket
-  Copyright (c) 2004-2018 PLT Design Inc.
-  Copyright (c) 1995-2001 Matthew Flatt
-
-    This library is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Library General Public
-    License as published by the Free Software Foundation; either
-    version 2 of the License, or (at your option) any later version.
-
-    This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Library General Public License for more details.
-
-    You should have received a copy of the GNU Library General Public
-    License along with this library; if not, write to the Free
-    Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
-    Boston, MA 02110-1301 USA.
-
-  libscheme
-  Copyright (c) 1994 Brent Benson
-  All rights reserved.
-*/
-
 #include "schpriv.h"
 #include "schmach.h"
 #include <ctype.h>
 #include <math.h>
 #include "../gc2/gc2_obj.h"
+
+READ_ONLY static Scheme_Hash_Tree *empty_hash_tree[3];
 
 THREAD_LOCAL_DECL(intptr_t scheme_hash_request_count);
 THREAD_LOCAL_DECL(intptr_t scheme_hash_iteration_count);
@@ -770,7 +747,7 @@ void scheme_clear_bucket_table(Scheme_Bucket_Table *bt)
 
   bt->count = 0;
   bt->size = 4;
-  ba = (Scheme_Bucket **)scheme_malloc(bt->size * sizeof(Scheme_Bucket **));
+  ba = (Scheme_Bucket **)scheme_malloc(bt->size * sizeof(Scheme_Bucket *));
   bt->buckets = ba;
 }
 
@@ -3194,7 +3171,23 @@ static Scheme_Hash_Tree *make_hash_tree(int eql_kind, int popcount)
 
 Scheme_Hash_Tree *scheme_make_hash_tree(int eql_kind)
 {
-  return make_hash_tree(eql_kind, 0);
+  return empty_hash_tree[eql_kind];
+}
+
+void scheme_init_hash_tree(void)
+{
+  Scheme_Hash_Tree *t;
+
+  REGISTER_SO(empty_hash_tree);
+
+  t = make_hash_tree(0, 0);
+  empty_hash_tree[0] = t;
+
+  t = make_hash_tree(1, 0);
+  empty_hash_tree[1] = t;
+
+  t = make_hash_tree(2, 0);
+  empty_hash_tree[2] = t;
 }
 
 Scheme_Hash_Tree *scheme_make_hash_tree_of_type(Scheme_Type stype)
@@ -3212,15 +3205,14 @@ Scheme_Hash_Tree *scheme_make_hash_tree_placeholder(int eql_kind)
    the cycle (since we don't know in advance how large the top record
    needs to be) */
 {
-  Scheme_Hash_Tree *ht, *sub;
+  Scheme_Hash_Tree *ht;
 
   ht = make_hash_tree(eql_kind, 1);
   ht->iso.so.type = scheme_hash_tree_indirection_type;
   ht->count = 0;
   ht->bitmap = 1;
 
-  sub = make_hash_tree(eql_kind, 0);
-  ht->els[0] = (Scheme_Object *)sub;
+  ht->els[0] = (Scheme_Object *)empty_hash_tree[eql_kind];
 
   return ht;
 }
@@ -3393,13 +3385,14 @@ Scheme_Hash_Tree *scheme_hash_tree_set_w_key_wraps(Scheme_Hash_Tree *tree, Schem
       /* replace */
       tree = resolve_placeholder(tree);
       if (!val) {
-        int kind = SCHEME_HASHTR_KIND(tree);
         tree = hamt_remove(tree, h, 0);
         if (!tree) {
-          tree = hamt_alloc(kind, 0);
-          tree->iso.so.type = stype;
-          SCHEME_HASHTR_FLAGS(tree) = kind;
-          return tree;
+           if (stype == scheme_eq_hash_tree_type)
+             return empty_hash_tree[0];
+           else if (stype == scheme_hash_tree_type)
+             return empty_hash_tree[1];
+           else
+             return empty_hash_tree[2];
         } else
           return tree;
       } else if (SAME_OBJ(val, mzHAMT_VAL(in_tree, pos))) {

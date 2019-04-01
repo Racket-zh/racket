@@ -72,14 +72,14 @@
 		    (test (if v 'yes 'no)
 			  name 
 			  ((eval `(lambda (x) (if (,op x) 'yes 'no))) arg)))))]
-	 [un-exact (lambda (v op arg [check-fixnum-as-bad? #f])
-		     (check-error-message op (eval `(lambda (x) (,op x))))
+	 [un-exact (lambda (v op arg [check-fixnum-as-bad? #f] #:name [name op])
+		     (check-error-message name (eval `(lambda (x) (,op x))))
                      (when check-fixnum-as-bad?
-                       (check-error-message op (eval `(lambda (x) (,op x))) #t))
+                       (check-error-message name (eval `(lambda (x) (,op x))) #t))
 		     (un0 v op arg))]
          
-	 [un (lambda (v op arg [check-fixnum-as-bad? #f])
-	       (un-exact v op arg check-fixnum-as-bad?)
+	 [un (lambda (v op arg [check-fixnum-as-bad? #f] #:name [name op])
+	       (un-exact v op arg check-fixnum-as-bad? #:name name)
 	       (when (number? arg)
 		 (let ([iv (if (number? v)
 			       (exact->inexact v)
@@ -930,6 +930,43 @@
 
       (bin-exact 5 'check-not-unsafe-undefined 5 'check-not-unsafe-undefined #:bad-value 'unsafe-undefined)
       )
+
+    ;; Even if extflonums are not available, check that uses don't
+    ;; confuse the JIT
+    (let ()
+      (define-syntax-rule (check-jit-ok (proc arg ...))
+        (test 'no (eval '(lambda (? arg ...)
+                           (if ?
+                               (proc arg ...)
+                               'no)))
+              #f 'arg ...))
+      (check-jit-ok (extfl+ x y))
+      (check-jit-ok (extfl* x y))
+      (check-jit-ok (extfl- x y))
+      (check-jit-ok (extfl/ x y))
+      (check-jit-ok (extflmin x y))
+      (check-jit-ok (extflmax x y))
+      (check-jit-ok (extfl< x y))
+      (check-jit-ok (extfl> x y))
+      (check-jit-ok (extfl<= x y))
+      (check-jit-ok (extfl>= x y))
+      (check-jit-ok (extfl= x y))
+      (check-jit-ok (extflabs x))
+      (check-jit-ok (extflsqrt x))
+      (check-jit-ok (extflsin x))
+      (check-jit-ok (extflcos x))
+      (check-jit-ok (extfltan x))
+      (check-jit-ok (extflasin x))
+      (check-jit-ok (extflacos x))
+      (check-jit-ok (extflatan x))
+      (check-jit-ok (extfllog x))
+      (check-jit-ok (extflexp x))
+      (check-jit-ok (extflexpt x y))
+      (check-jit-ok (->extfl x y))
+      (check-jit-ok (fx->extfl x y))
+      (check-jit-ok (extflvector-length x))
+      (check-jit-ok (extflvector-ref x y))
+      (check-jit-ok (extflvector-set! x y z)))
     
     (let ([test-setter
 	   (lambda (make-X def-val set-val set-name set ref 3rd-all-ok?)
@@ -1033,6 +1070,9 @@
     (un0 'yes 'thing-ref a-rock)
     (bin0 'yes 'thing-ref a-rock 99)
     (bin0 99 'thing-ref 10 99)
+
+    (un 'b '(lambda (ht) (hash-ref ht 'a #f)) '#hash((a . b)) #t
+        #:name 'hash-ref)
 
     ))
 

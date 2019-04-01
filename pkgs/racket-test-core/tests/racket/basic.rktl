@@ -5,6 +5,7 @@
 
 (require racket/flonum
          racket/function
+         racket/list
          (prefix-in k: '#%kernel))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -374,6 +375,16 @@
 (test #f immutable? (make-hash))
 (test #f immutable? (make-weak-hasheq))
 (test #f immutable? (make-weak-hash))
+
+(test #t eq? (hash) #hash())
+(test #t eq? (hasheq) #hasheq())
+(test #t eq? (hasheqv) #hasheqv())
+(test #t eq? (make-immutable-hash) #hash())
+(test #t eq? (make-immutable-hasheq) #hasheq())
+(test #t eq? (make-immutable-hasheqv) #hasheqv())
+(test #t eq? (hash) (hash-remove (hash 3 4) 3))
+(test #t eq? (hasheq) (hash-remove (hasheq 3 4) 3))
+(test #t eq? (hasheqv) (hash-remove (hasheqv 3 4) 3))
 
 (test #t symbol? 'foo)
 (test #t symbol? (car '(a b)))
@@ -1140,6 +1151,49 @@
 (err/rt-test (bytes-fill! #"static" 1))
 (err/rt-test (bytes-fill! (bytes-copy #"oops") #\5))
 
+(test #t bytes=? #"a" #"a" #"a")
+(test #t bytes=? #"a" #"a")
+(test #t bytes=? #"a")
+(test #f bytes=? #"a" #"a" #"c")
+(test #f bytes=? #"a" #"b" #"c")
+(test #f bytes=? #"a" #"b")
+(test #f bytes=? #"c" #"a" #"a")
+(test #f bytes=? #"c" #"b" #"a")
+(test #f bytes=? #"b" #"a")
+(err/rt-test (bytes=? 1))
+(err/rt-test (bytes=? #"a" 1))
+(err/rt-test (bytes=? #"a" #"a" 1))
+(err/rt-test (bytes=? #"a" #"b" 1))
+
+(test #f bytes<? #"a" #"a" #"a")
+(test #f bytes<? #"a" #"a")
+(test #t bytes<? #"a")
+(test #f bytes<? #"a" #"a" #"c")
+(test #t bytes<? #"a" #"b" #"c")
+(test #t bytes<? #"a" #"b")
+(test #f bytes<? #"c" #"a" #"a")
+(test #f bytes<? #"c" #"b" #"a")
+(test #f bytes<? #"b" #"a")
+(err/rt-test (bytes<? 1))
+(err/rt-test (bytes<? #"a" 1))
+(err/rt-test (bytes<? #"a" #"a" 1))
+(err/rt-test (bytes<? #"b" #"a" 1))
+
+(test #f bytes>? #"a" #"a" #"a")
+(test #f bytes>? #"a" #"a")
+(test #t bytes>? #"a")
+(test #f bytes>? #"a" #"a" #"c")
+(test #f bytes>? #"a" #"b" #"c")
+(test #f bytes>? #"a" #"b")
+(test #f bytes>? #"c" #"a" #"a")
+(test #t bytes>? #"c" #"b" #"a")
+(test #t bytes>? #"b" #"a")
+(err/rt-test (bytes>? 1))
+(err/rt-test (bytes>? #"a" 1))
+(err/rt-test (bytes>? #"a" #"a" 1))
+(err/rt-test (bytes>? #"a" #"b" 1))
+
+
 (define r (regexp "(-[0-9]*)+"))
 (test '("-12--345" "-345") regexp-match r "a-12--345b")
 (test '((1 . 9) (5 . 9)) regexp-match-positions r "a-12--345b")
@@ -1540,21 +1594,21 @@
       (with-handlers ([void (lambda (x) (list x))])
         (with-handlers ([integer? (lambda (x) 10)])
           (raise 'apple))))
-(test '((10)) 'exns
+(test '((20)) 'exns
       (with-handlers ([void (lambda (x) (list x))])
         (with-handlers ([integer? (lambda (x) (raise (list x)))])
-          (raise 10))))
-(test '((10)) 'exns
+          (raise 20))))
+(test '((30)) 'exns
       (let/ec esc
         (parameterize ([uncaught-exception-handler (lambda (x) (esc (list x)))])
           (with-handlers ([integer? (lambda (x) (raise (list x)))])
-            (raise 10)))))
-(test '#((10)) 'exns
+            (raise 30)))))
+(test '#((40)) 'exns
       (let/ec esc
         (with-handlers ([void (lambda (x) (vector x))])
           (parameterize ([uncaught-exception-handler (lambda (x) (esc (list x)))])
             (with-handlers ([integer? (lambda (x) (raise (list x)))])
-              (raise 10))))))
+              (raise 40))))))
 
 (test '(except) 'escape
       (let/ec k
@@ -2215,7 +2269,7 @@
       (test #t eq? (equal-hash-code l) (equal-hash-code (list 1 2 3)))
       (hash-set! h1 l 'ok)
       (test 'ok hash-ref h1 l)
-      (err/rt-test (hash-ref h1 'nonesuch (lambda (x) 'bad-proc)) exn:fail:contract? "hash-ref")
+      (err/rt-test (hash-ref h1 'nonesuch (lambda (x) 'bad-proc)) exn:fail:contract:arity? "hash-ref")
       (test #t hash-has-key? h1 l)
       (test #f hash-has-key? h1 (cdr l))
       (when hash-ref!

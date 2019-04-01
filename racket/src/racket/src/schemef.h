@@ -1,17 +1,3 @@
-/*
-  Racket
-  Copyright (c) 2004-2018 PLT Design Inc.
-  Copyright (c) 1995-2001 Matthew Flatt
-  All rights reserved.
-
-  Please see the full copyright in the documentation.
-
-  Originally based on:
-  libscheme
-  Copyright (c) 1994 Brent Benson
-  All rights reserved.
-*/
-
 /* SKIP */
 
 /* After modifying this file, `make exports' (you must have `racket'
@@ -211,8 +197,8 @@ MZ_EXTERN Scheme_On_Atomic_Timeout_Proc scheme_set_on_atomic_timeout(Scheme_On_A
 /*                              error handling                            */
 /*========================================================================*/
 
-MZ_EXTERN void scheme_signal_error(const char *msg, ...);
-MZ_EXTERN void scheme_raise_exn(int exnid, ...);
+MZ_EXTERN void scheme_signal_error(const char *msg, ...) NORETURN;
+MZ_EXTERN void scheme_raise_exn(int exnid, ...) NORETURN;
 MZ_EXTERN void scheme_warning(char *msg, ...);
 
 MZ_EXTERN void scheme_raise(Scheme_Object *exn);
@@ -235,32 +221,17 @@ MZ_EXTERN void scheme_glib_log_message(const char *log_domain, int log_level, co
 MZ_EXTERN void *scheme_glib_log_message_test(char *str);
 MZ_EXTERN void scheme_out_of_memory_abort();
 
-MZ_EXTERN void scheme_wrong_count(const char *name, int minc, int maxc,
-				  int argc, Scheme_Object **argv);
-MZ_EXTERN void scheme_wrong_count_m(const char *name, int minc, int maxc,
-				    int argc, Scheme_Object **argv,
-				    int is_method);
-MZ_EXTERN void scheme_case_lambda_wrong_count(const char *name, int argc,
-					      Scheme_Object **argv, int is_method, int count, ...);
-MZ_EXTERN void scheme_wrong_type(const char *name, const char *expected,
-				 int which, int argc,
-				 Scheme_Object **argv);
-MZ_EXTERN void scheme_wrong_contract(const char *name, const char *expected,
-                                     int which, int argc,
-                                     Scheme_Object **argv);
-MZ_EXTERN void scheme_wrong_field_type(Scheme_Object *c_name,
-				       const char *expected,
-				       Scheme_Object *o);
-MZ_EXTERN void scheme_wrong_field_contract(Scheme_Object *c_name,
-                                           const char *expected,
-                                           Scheme_Object *o);
-MZ_EXTERN void scheme_arg_mismatch(const char *name, const char *msg, Scheme_Object *o);
-MZ_EXTERN void scheme_contract_error(const char *name, const char *msg, ...);
-MZ_EXTERN void scheme_wrong_return_arity(const char *where,
-					 int expected, int got,
-					 Scheme_Object **argv,
-					 const char *context_detail, ...);
-MZ_EXTERN void scheme_unbound_global(Scheme_Bucket *b);
+MZ_EXTERN void scheme_wrong_count(const char *name, int minc, int maxc, int argc, Scheme_Object **argv) NORETURN;
+MZ_EXTERN void scheme_wrong_count_m(const char *name, int minc, int maxc, int argc, Scheme_Object **argv, int is_method) NORETURN;
+MZ_EXTERN void scheme_case_lambda_wrong_count(const char *name, int argc, Scheme_Object **argv, int is_method, int count, ...) NORETURN;
+MZ_EXTERN void scheme_wrong_type(const char *name, const char *expected, int which, int argc, Scheme_Object **argv) NORETURN;
+MZ_EXTERN void scheme_wrong_contract(const char *name, const char *expected, int which, int argc, Scheme_Object **argv) NORETURN;
+MZ_EXTERN void scheme_wrong_field_type(Scheme_Object *c_name, const char *expected, Scheme_Object *o) NORETURN;
+MZ_EXTERN void scheme_wrong_field_contract(Scheme_Object *c_name, const char *expected, Scheme_Object *o) NORETURN;
+MZ_EXTERN void scheme_arg_mismatch(const char *name, const char *msg, Scheme_Object *o) NORETURN;
+MZ_EXTERN void scheme_contract_error(const char *name, const char *msg, ...) NORETURN;
+MZ_EXTERN void scheme_wrong_return_arity(const char *where, int expected, int got, Scheme_Object **argv, const char *context_detail, ...) NORETURN;
+MZ_EXTERN void scheme_unbound_global(Scheme_Bucket *b) NORETURN;
 
 MZ_EXTERN Scheme_Object *scheme_dynamic_wind(void (*pre)(void *),
 					     Scheme_Object *(* volatile act)(void *),
@@ -508,7 +479,7 @@ MZ_EXTERN void scheme_clear_hash_table(Scheme_Hash_Table *ht);
 XFORM_NONGCING_NONALIASING MZ_EXTERN int scheme_hash_table_index(Scheme_Hash_Table *hash, mzlonglong pos, Scheme_Object **_key, Scheme_Object **_val);
 XFORM_NONGCING MZ_EXTERN Scheme_Object *scheme_hash_table_next(Scheme_Hash_Table *hash, mzlonglong start);
 
-MZ_EXTERN Scheme_Hash_Tree *scheme_make_hash_tree(int kind);
+XFORM_NONGCING MZ_EXTERN Scheme_Hash_Tree *scheme_make_hash_tree(int kind);
 MZ_EXTERN Scheme_Hash_Tree *scheme_hash_tree_set(Scheme_Hash_Tree *tree, Scheme_Object *key, Scheme_Object *val);
 MZ_EXTERN Scheme_Object *scheme_hash_tree_get(Scheme_Hash_Tree *tree, Scheme_Object *key);
 XFORM_NONGCING MZ_EXTERN Scheme_Object *scheme_eq_hash_tree_get(Scheme_Hash_Tree *tree, Scheme_Object *key);

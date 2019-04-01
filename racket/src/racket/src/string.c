@@ -1,28 +1,3 @@
-/*
-  Racket
-  Copyright (c) 2004-2018 PLT Design Inc.
-  Copyright (c) 1995-2001 Matthew Flatt
-
-    This library is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Library General Public
-    License as published by the Free Software Foundation; either
-    version 2 of the License, or (at your option) any later version.
-
-    This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Library General Public License for more details.
-
-    You should have received a copy of the GNU Library General Public
-    License along with this library; if not, write to the Free
-    Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
-    Boston, MA 02110-1301 USA.
-
-  libscheme
-  Copyright (c) 1994 Brent Benson
-  All rights reserved.
-*/
-
 #include "schpriv.h"
 #include "schvers.h"
 #include "schrktio.h"
@@ -196,7 +171,7 @@ static char *string_to_from_locale(int to_bytes,
 ROSYM static Scheme_Object *sys_symbol;
 ROSYM static Scheme_Object *link_symbol, *machine_symbol, *vm_symbol, *gc_symbol;
 ROSYM static Scheme_Object *so_suffix_symbol, *so_mode_symbol, *word_symbol;
-ROSYM static Scheme_Object *os_symbol, *fs_change_symbol, *cross_symbol;
+ROSYM static Scheme_Object *os_symbol, *fs_change_symbol, *target_machine_symbol, *cross_symbol;
 ROSYM static Scheme_Object *racket_symbol, *cgc_symbol, *_3m_symbol, *cs_symbol;
 ROSYM static Scheme_Object *force_symbol, *infer_symbol;
 ROSYM static Scheme_Object *platform_3m_path, *platform_cgc_path, *platform_cs_path;
@@ -246,6 +221,7 @@ scheme_init_string (Scheme_Startup_Env *env)
   REGISTER_SO(word_symbol);
   REGISTER_SO(os_symbol);
   REGISTER_SO(fs_change_symbol);
+  REGISTER_SO(target_machine_symbol);
   REGISTER_SO(cross_symbol);
   link_symbol = scheme_intern_symbol("link");
   machine_symbol = scheme_intern_symbol("machine");
@@ -256,6 +232,7 @@ scheme_init_string (Scheme_Startup_Env *env)
   word_symbol = scheme_intern_symbol("word");
   os_symbol = scheme_intern_symbol("os");
   fs_change_symbol = scheme_intern_symbol("fs-change");
+  target_machine_symbol = scheme_intern_symbol("target-machine");
   cross_symbol = scheme_intern_symbol("cross");
 
   REGISTER_SO(racket_symbol);
@@ -700,7 +677,7 @@ scheme_init_string (Scheme_Startup_Env *env)
   scheme_addto_prim_instance("bytes-utf-8-ref",
 			     scheme_make_immed_prim(byte_string_utf8_ref,
 						    "bytes-utf-8-ref",
-						    2, 4),
+						    2, 5),
 			     env);
 
   scheme_addto_prim_instance("bytes->string/utf-8",
@@ -2412,12 +2389,19 @@ static Scheme_Object *system_type(int argc, Scheme_Object *argv[])
       return fs_change_props;
     }
 
+    if (SAME_OBJ(argv[0], target_machine_symbol)) {
+      return racket_symbol;
+    }
+
     if (SAME_OBJ(argv[0], cross_symbol)) {
       return (cross_compile_mode ? force_symbol : infer_symbol);
     }
 
     if (!SAME_OBJ(argv[0], os_symbol)) {
-      scheme_wrong_contract("system-type", "(or/c 'os 'word 'link 'machine 'vm 'gc 'so-suffix 'so-mode 'word 'fs-change 'cross)", 0, argc, argv);
+      scheme_wrong_contract("system-type",
+                            ("(or/c 'os 'word 'link 'machine 'target-machine\n"
+                             " 'vm 'gc 'so-suffix 'so-mode 'word 'fs-change 'cross)"),
+                            0, argc, argv);
       return NULL;
     }
   }
@@ -4161,6 +4145,21 @@ static int mz_strcmp(const char *who, unsigned char *str1, intptr_t l1, unsigned
   return endres;
 }
 
+int scheme_string_compare(Scheme_Object *a, Scheme_Object *b)
+{
+  return mz_char_strcmp(NULL,
+                        SCHEME_CHAR_STR_VAL(a),  SCHEME_CHAR_STRTAG_VAL(a),
+                        SCHEME_CHAR_STR_VAL(b),  SCHEME_CHAR_STRTAG_VAL(b),
+                        0, 0);
+}
+
+int scheme_bytes_compare(Scheme_Object *a, Scheme_Object *b)
+{
+  return mz_strcmp(NULL,
+                   (unsigned char *)SCHEME_BYTE_STR_VAL(a),  SCHEME_BYTE_STRTAG_VAL(a),
+                   (unsigned char *)SCHEME_BYTE_STR_VAL(b),  SCHEME_BYTE_STRTAG_VAL(b));
+}
+
 /**********************************************************************/
 /*                  byte string conversion                            */
 /**********************************************************************/
@@ -5072,7 +5071,9 @@ static intptr_t utf8_encode_x(const unsigned int *us, intptr_t start, intptr_t e
 	if ((wc & 0xF800) == 0xD800) {
 	  /* Unparse surrogates. We assume that the surrogates are
 	     well formed, unless this is Windows or if we're at the
-             end and _opos is 0. */
+             end and _opos is 0. The well-formedness assumption was
+             probably not a good idea, but note that it's explicitly
+             documented to behave that way. */
 # ifdef WINDOWS_UNICODE_SUPPORT
 #  define UNPAIRED_MASK 0xFC00
 # else

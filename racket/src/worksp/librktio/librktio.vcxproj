@@ -131,6 +131,7 @@
     <ClCompile Include="..\..\rktio\rktio_flock.c" />
     <ClCompile Include="..\..\rktio\rktio_shellex.c" />
     <ClCompile Include="..\..\rktio\rktio_time.c" />
+    <ClCompile Include="..\..\rktio\rktio_cpu.c" />
     <ClCompile Include="..\..\rktio\rktio_syslog.c" />
     <ClCompile Include="..\..\rktio\rktio_convert.c" />
     <ClCompile Include="..\..\rktio\rktio_sha1.c" />
@@ -139,6 +140,7 @@
     <ClCompile Include="..\..\rktio\rktio_error.c" />
     <ClCompile Include="..\..\rktio\rktio_hash.c" />
     <ClCompile Include="..\..\rktio\rktio_wide.c" />
+    <ClCompile Include="..\..\rktio\rktio_console.c" />
     <ClCompile Include="..\..\rktio\rktio_main.c" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

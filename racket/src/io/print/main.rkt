@@ -22,6 +22,7 @@
          "mode.rkt"
          "graph.rkt"
          "config.rkt"
+         "regexp.rkt"
          "recur-handler.rkt")
 
 (provide display
@@ -38,6 +39,8 @@
          custom-print-quotable?
          custom-print-quotable-accessor
 
+         set-printable-regexp?!
+
          (all-from-out "parameter.rkt"))
 
 (module+ internal
@@ -49,8 +52,7 @@
            install-do-global-print!))
 
 (define/who (display v [o (current-output-port)])
-  (check who output-port? o)
-  (let ([co (->core-output-port o)])
+  (let ([co (->core-output-port o who)])
     (define display-handler (core-output-port-display-handler co))
     (if display-handler
         (display-handler v o)
@@ -60,7 +62,7 @@
 (define (do-display who v o [max-length #f])
   (cond
     [(and (bytes? v) (not max-length))
-     (write-bytes v o)
+     (unsafe-write-bytes who v o)
      (void)]
     [(and (string? v) (not max-length))
      (write-string v o)
@@ -71,8 +73,7 @@
      (void)]))
 
 (define/who (write v [o (current-output-port)])
-  (check who output-port? o)
-  (let ([co (->core-output-port o)])
+  (let ([co (->core-output-port o who)])
     (define write-handler (core-output-port-write-handler co))
     (if write-handler
         (write-handler v o)
@@ -85,9 +86,8 @@
   (void))
 
 (define/who (print v [o (current-output-port)] [quote-depth PRINT-MODE/UNQUOTED])
-  (check who output-port? o)
-  (check who print-mode? #:contract "(or/c 0 1)" quote-depth)
-  (let ([co (->core-output-port o)])
+  (let ([co (->core-output-port o who)])
+    (check who print-mode? #:contract "(or/c 0 1)" quote-depth)
     (define print-handler (core-output-port-print-handler co))
     (if print-handler
         (print-handler v o quote-depth)
@@ -119,15 +119,15 @@
              (global-print v o2 quote-depth)
              (define bstr (get-output-bytes o2))
              (if ((bytes-length bstr) . <= . max-length)
-                 (write-bytes bstr o)
+                 (unsafe-write-bytes who bstr o)
                  (begin
-                   (write-bytes (subbytes bstr 0 (sub3 max-length)) o)
-                   (write-bytes #"..." o)))])
+                   (unsafe-write-bytes who (subbytes bstr 0 (sub3 max-length)) o)
+                   (unsafe-write-bytes who #"..." o)))])
           (void))))
 
 (define/who (newline [o (current-output-port)])
   (check who output-port? o)
-  (write-bytes #"\n" o)
+  (unsafe-write-bytes 'newline #"\n" o)
   (void))
 
 ;; ----------------------------------------
@@ -168,7 +168,9 @@
                     [max-length (write-string/max gs o max-length)]
                     [max-length (write-string/max "=" o max-length)])
                (hash-set! graph v gs)
-               (p/no-graph who v mode o max-length graph config))]))]
+               (if (as-constructor? g)
+                   (p/no-graph-no-quote who v mode o max-length graph config)
+                   (p/no-graph who v mode o max-length graph config)))]))]
     [else
      (p/no-graph who v mode o max-length graph config)]))
 
@@ -182,7 +184,10 @@
               (vector? v)
               (box? v)
               (hash? v)
-              (prefab-struct-key v)))
+              (prefab-struct-key v)
+              (and (custom-write? v)
+                   (not (printable-regexp? v))
+                   (not (eq? 'self (custom-print-quotable-accessor v 'self))))))
      ;; Since this value is not marked for constructor mode,
      ;; transition to quote mode:
      (let ([max-length (write-string/max "'" o max-length)])
@@ -221,13 +226,38 @@
        [(eq? mode DISPLAY-MODE) (write-string/max (string v) o max-length)]
        [else (print-char v o max-length)])]
     [(not v)
-     (write-string/max "#f" o max-length)]
+     (if (config-get config print-boolean-long-form)
+         (write-string/max "#false" o max-length)
+         (write-string/max "#f" o max-length))]
     [(eq? v #t)
-     (write-string/max "#t" o max-length)]
+     (if (config-get config print-boolean-long-form)
+         (write-string/max "#true" o max-length)
+         (write-string/max "#t" o max-length))]
     [(pair? v)
      (print-list p who v mode o max-length graph config #f #f)]
     [(vector? v)
-     (print-list p who (vector->list v) mode o max-length graph config "#(" "(vector")]
+     (cond
+       [(and (not (eq? mode PRINT-MODE/UNQUOTED))
+             (config-get config print-vector-length))
+        (define len (vector-length v))
+        (define same-n
+          (cond
+            [(zero? len) 0]
+            [else
+             (let loop ([i (sub1 len)] [accum 0])
+               (cond
+                 [(zero? i) accum]
+                 [(eq? (vector-ref v (sub1 i)) (vector-ref v i))
+                  (loop (sub1 i) (add1 accum))]
+                 [else accum]))]))
+        (define lst (if (zero? same-n)
+                        (vector->list v)
+                        (for/list ([e (in-vector v 0 (- len same-n))])
+                          e)))
+        (define lbl (string-append "#" (number->string len) "("))
+        (print-list p who lst mode o max-length graph config lbl "(vector")]
+       [else
+        (print-list p who (vector->list v) mode o max-length graph config "#(" "(vector")])]
     [(flvector? v)
      (define l (for/list ([e (in-flvector v)]) e))
      (print-list p who l mode o max-length graph config "#fl(" "(flvector")]
@@ -235,25 +265,52 @@
      (define l (for/list ([e (in-fxvector v)]) e))
      (print-list p who l mode o max-length graph config "#fx(" "(fxvector")]
     [(box? v)
-     (if (config-get config print-box)
-         (p who (unbox v) mode o (write-string/max "#&" o max-length) graph config)
-         (write-string/max "#<box>" o max-length))]
+     (cond
+       [(config-get config print-box)
+        (cond
+          [(eq? mode PRINT-MODE/UNQUOTED)
+           (let* ([max-length (write-string/max "(box " o max-length)]
+                  [max-length (p who (unbox v) mode o max-length graph config)])
+             (write-string/max ")" o max-length))]
+          [else
+           (p who (unbox v) mode o (write-string/max "#&" o max-length) graph config)])]
+       [else
+        (check-unreadable who config mode v)
+        (write-string/max "#<box>" o max-length)])]
     [(hash? v)
-     (if (and (config-get config print-hash-table)
-              (not (hash-weak? v)))
-         (print-hash v o max-length p who mode graph config)
-         (write-string/max "#<hash>" o max-length))]
+     (cond
+       [(and (config-get config print-hash-table)
+             (not (hash-weak? v)))
+        (cond
+          [(eq? mode PRINT-MODE/UNQUOTED)
+           (define l (apply append (hash-map v list #t)))
+           (define prefix (cond
+                            [(hash-eq? v) "(hasheq"]
+                            [(hash-eqv? v) "(hasheqv"]
+                            [else "(hash"]))
+           (print-list p who l mode o max-length graph config #f prefix)]
+          [else
+           (print-hash v o max-length p who mode graph config)])]
+       [else
+        (check-unreadable who config mode v)
+        (write-string/max "#<hash>" o max-length)])]
+    [(and (eq? mode WRITE-MODE)
+          (not (config-get config print-unreadable))
+          ;; Regexps are a special case: custom writers that produce readable input
+          (not (printable-regexp? v)))
+     (fail-unreadable who v)]
     [(mpair? v)
      (print-mlist p who v mode o max-length graph config)]
     [(custom-write? v)
-     (let ([o (make-output-port/max o max-length)])
+     (let ([o/m (make-output-port/max o max-length)])
        (set-port-handlers-to-recur!
-        o
+        o/m
         (lambda (v o mode)
-          (p who v mode o (output-port/max-max-length o max-length) graph config)))
-       ((custom-write-accessor v) v o mode)
-       (output-port/max-max-length o max-length))]
-    [(struct? v)
+          (p who v mode o (output-port/max-max-length o/m max-length) graph config)))
+       ((custom-write-accessor v) v o/m mode)
+       (output-port/max-max-length o/m max-length))]
+    [(and (struct? v)
+          (config-get config print-struct))
      (cond
        [(eq? mode PRINT-MODE/UNQUOTED)
         (define l (vector->list (struct->vector v)))
@@ -281,6 +338,22 @@
      (print-named "input-port" v mode o max-length)]
     [(core-output-port? v)
      (print-named "output-port" v mode o max-length)]
+    [(unquoted-printing-string? v)
+     (write-string/max (unquoted-printing-string-value v) o max-length)]
     [else
      ;; As a last resort, fall back to the host `format`:
      (write-string/max (format "~s" v) o max-length)]))
+
+(define (fail-unreadable who v)
+  (raise (exn:fail
+          (string-append (symbol->string who)
+                         ": printing disabled for unreadable value"
+                         "\n  value: "
+                         (parameterize ([print-unreadable #t])
+                           ((error-value->string-handler) v (error-print-width))))
+          (current-continuation-marks))))
+
+(define (check-unreadable who config mode v)
+  (when (and (eq? mode WRITE-MODE)
+             (not (config-get config print-unreadable)))
+    (fail-unreadable who v)))

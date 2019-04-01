@@ -20,12 +20,17 @@ GLOBALS = --no-global \
           ++global-ok installed-read-accept-reader \
           ++global-ok installed-read-accept-lang \
           ++global-ok maybe-raise-missing-module \
-          ++global-ok 'string->number?' \
+          ++global-ok "string->number?" \
+          ++global-ok "printable-regexp?" \
           ++global-ok do-global-print \
+          ++global-ok simplify-path/dl \
           ++global-ok exec-file \
           ++global-ok run-file \
           ++global-ok collects-dir \
-          ++global-ok config-dir
+          ++global-ok config-dir \
+          ++global-ok addon-dir \
+          ++global-ok host-collects-dir \
+          ++global-ok host-config-dir
 
 io-src: $(RKTIO_DEP)
 	$(RACO) make ../expander/bootstrap-run.rkt

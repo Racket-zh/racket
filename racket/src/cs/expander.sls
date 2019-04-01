@@ -28,7 +28,9 @@
           (thread)
           (regexp)
           (io)
-          (linklet))
+          (linklet)
+          (only (schemify)
+                force-unfasl))
 
   (include "place-register.ss")
   (define-place-register-define define expander-register-start expander-register-count)
@@ -41,20 +43,26 @@
   ;; The expander needs various tables to set up primitive modules, and
   ;; the `primitive-table` function is the bridge between worlds
 
-  (define (primitive-table key)
-    (case key
-      [(|#%linklet|) linklet-table]
-      [(|#%kernel|) kernel-table]
-      [(|#%read|) (make-hasheq)]
-      [(|#%paramz|) paramz-table]
-      [(|#%unsafe|) unsafe-table]
-      [(|#%foreign|) foreign-table]
-      [(|#%futures|) futures-table]
-      [(|#%place|) place-table]
-      [(|#%flfxnum|) flfxnum-table]
-      [(|#%extfl|) extfl-table]
-      [(|#%network|) network-table]
-      [else #f]))
+  (define user-installed-tables (make-hasheq))
+
+  (define primitive-table
+    (case-lambda
+     [(key)
+      (case key
+        [(|#%linklet|) linklet-table]
+        [(|#%kernel|) kernel-table]
+        [(|#%read|) (make-hasheq)]
+        [(|#%paramz|) paramz-table]
+        [(|#%unsafe|) unsafe-table]
+        [(|#%foreign|) foreign-table]
+        [(|#%futures|) futures-table]
+        [(|#%place|) place-table]
+        [(|#%flfxnum|) flfxnum-table]
+        [(|#%extfl|) extfl-table]
+        [(|#%network|) network-table]
+        [else (hash-ref user-installed-tables key #f)])]
+     [(key table)
+      (hash-set! user-installed-tables key table)]))
 
   (define-syntax define-primitive-table
     (syntax-rules ()
@@ -104,7 +112,9 @@
                      (thread)
                      (io)
                      (regexp)
-                     (linklet)))
+                     (linklet)
+                     (only (schemify)
+                           force-unfasl)))
       ;; Ensure that the library is visited, especially for a wpo build:
       (eval 'variable-set!)))
 
@@ -185,7 +195,7 @@
                                      linklet-table
                                      internal-table
                                      schemify-table)
-  
+
   ;; ----------------------------------------
 
   ;; `install-reader!` is from the `io` library, where the
@@ -196,7 +206,11 @@
   ;; the printer needs to check whether a string parses as a number
   ;; for deciding wheter to quote the string
   (set-string->number?! (lambda (str)
-                          (not (not (1/string->number str 10 'read)))))
+                          (and (1/string->number str 10 'read)
+                               ;; Special case: `#%` is never read as a number or error:
+                               (not (and (>= (string-length str) 2)
+                                         (eqv? (string-ref str 0) #\#)
+                                         (eqv? (string-ref str 1) #\%))))))
 
   ;; `set-maybe-raise-missing-module!` is also from the `io` library
   (set-maybe-raise-missing-module! maybe-raise-missing-module))

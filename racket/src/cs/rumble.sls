@@ -5,6 +5,9 @@
           null eof void void?
 
           begin0
+          $value
+
+          letrec*/names
 
           dynamic-wind
           call-with-current-continuation
@@ -116,6 +119,7 @@
           struct:srcloc srcloc srcloc?
           srcloc-source srcloc-line srcloc-column srcloc-position srcloc-span
           prop:exn:srclocs exn:srclocs? exn:srclocs-accessor
+          unsafe-make-srcloc
 
           struct:date date? date make-date
           date-second date-minute date-hour date-day date-month date-year
@@ -155,6 +159,7 @@
           primitive-result-arity
           make-jit-procedure ; not exported to racket
           |#%name|           ; not exported to racket
+          |#%method-arity|   ; not exported to racket
 
           equal?
           equal?/recur
@@ -171,6 +176,8 @@
           impersonator-property-accessor-procedure?
           impersonator-ephemeron
           prop:impersonator-of
+          (rename [strip-impersonator unsafe-strip-impersonator] ; not exported to Racket
+                  [prop:authentic-override prop:unsafe-authentic-override])  ; not exported to Racket
 
           impersonate-procedure
           chaperone-procedure
@@ -266,6 +273,8 @@
           hash? hash-eq? hash-equal? hash-eqv? hash-weak? immutable-hash?
           hash-count
           hash-keys-subset?
+          eq-hashtable->hash   ; not exported to racket
+          hash->eq-hashtable   ; not exported to racket
 
           datum-intern-literal
           set-intern-regexp?!  ; not exported to racket
@@ -283,10 +292,11 @@
           bytes->list list->bytes
           bytes->immutable-bytes
           bytes-copy! bytes-copy bytes-fill!
-          bytes=? bytes<? bytes>? bytes<=? bytes>=?
+          bytes=? bytes<? bytes>?
           bytes-append
           subbytes
 
+          make-string
           string-copy!
           substring
 
@@ -315,6 +325,7 @@
 
           vector?
           mutable-vector?
+          make-vector
           (rename [inline:vector-length vector-length]
                   [inline:vector-ref vector-ref]
                   [inline:vector-set! vector-set!])
@@ -455,7 +466,10 @@
           phantom-bytes?
           make-phantom-bytes
           set-phantom-bytes!
-          set-garbage-collect-notify! ; not exported to Racket
+          set-garbage-collect-notify!             ; not exported to Racket
+          set-reachable-size-increments-callback! ; not exported to Racket
+          set-custodian-memory-use-proc!          ; not exported to Racket
+          set-immediate-allocation-check-proc!    ; not exported to Racket
           unsafe-add-collect-callbacks
           unsafe-remove-collect-callbacks
 
@@ -475,6 +489,8 @@
           system-type
           system-path-convention-type
           system-library-subpath-string ; not exported to Racket
+          set-get-machine-info!         ; not exported to Racket
+          set-cross-mode!               ; not exported to Racket
 
           unsafe-car
           unsafe-cdr
@@ -580,6 +596,7 @@
           place-local-register-set!  ; not exported to Racket
           place-local-register-init! ; not exported to Racket
           place-exit                 ; not exported to Racket
+          current-place-roots        ; not exported to Racket
 
           _bool _bytes _short_bytes _double _double* _fixint _fixnum _float _fpointer _gcpointer
           _int16 _int32 _int64 _int8 _longdouble _pointer _scheme _stdbool _void
@@ -594,12 +611,12 @@
           make-sized-byte-string make-union-type malloc malloc-immobile-cell
           memcpy memmove memset offset-ptr? prop:cpointer ptr-add ptr-add! ptr-equal? ptr-offset ptr-ref
           ptr-set! saved-errno set-cpointer-tag! set-ptr-offset! vector->cpointer
-          unsafe-register-process-global
+          unsafe-register-process-global unsafe-add-global-finalizer
           (rename [ffi-lib* ffi-lib])
           set-ffi-get-lib-and-obj!        ; not exported to Racket
           poll-async-callbacks            ; not exported to Racket
-          set-async-callback-poll-wakeup! ; not exported to Racket
-          set-foreign-eval!               ; not exported to racket
+          set-make-async-callback-poll-wakeup! ; not exported to Racket
+          set-foreign-eval!               ; not exported to Racket
 
           unsafe-unbox
           unsafe-unbox*
@@ -640,6 +657,7 @@
           unsafe-struct-set!
           unsafe-struct*-ref
           unsafe-struct*-set!
+          unsafe-struct*-cas!
           unsafe-struct? ; not exported to racket
 
           unsafe-s16vector-ref
@@ -656,6 +674,7 @@
           fork-pthread
           pthread?
           get-thread-id
+          get-initial-pthread
           make-condition
           condition-wait
           condition-signal
@@ -683,12 +702,14 @@
                 record-field-mutator))
 
   (define/no-lift none (chez:gensym "none"))
-  (define/no-lift none2 (chez:gensym "none2"))
+  (define/no-lift none2 (chez:gensym "none2")) ; never put this in an emphemeron
 
   (include "rumble/define.ss")
   (include "rumble/virtual-register.ss")
   (include "rumble/begin0.ss")
+  (include "rumble/letrec.ss")
   (include "rumble/syntax-rule.ss")
+  (include "rumble/value.ss")
   (include "rumble/lock.ss")
   (include "rumble/thread-local.ss")
   (include "rumble/version.ss")
@@ -715,6 +736,7 @@
   (include "rumble/engine.ss")
   (include "rumble/source.ss")
   (include "rumble/error.ss")
+  (include "rumble/error-rewrite.ss")
   (include "rumble/srcloc.ss")
   (include "rumble/boolean.ss")
   (include "rumble/bytes.ss")
@@ -738,6 +760,7 @@
   (include "rumble/unsafe.ss")
   (include "rumble/extfl.ss")
   (include "rumble/place.ss")
+  (include "rumble/errno-data.ss")
   (include "rumble/foreign.ss")
   (include "rumble/future.ss")
   (include "rumble/inline.ss")
@@ -759,6 +782,7 @@
   (set-mpair-hash!)
   (set-hash-hash!)
   (set-flvector-hash!)
+  (set-extflonum-print!)
   (set-impersonator-hash!)
   (set-procedure-impersonator-hash!)
   (set-vector-impersonator-hash!)

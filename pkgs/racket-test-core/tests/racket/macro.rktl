@@ -482,8 +482,7 @@
 (module m1-for-local-expand racket/base
   (require (for-syntax racket/base))
   (provide (rename-out [mb #%module-begin])
-           (except-out (all-from-out racket/base) #%module-begin)
-           (for-syntax (all-from-out racket/base)))
+           (except-out (all-from-out racket/base) #%module-begin))
   (define-syntax (mb stx)
     (syntax-case stx ()
       [(_ 10) #'(#%plain-module-begin 10)]
@@ -492,20 +491,17 @@
        (let ([e (local-expand #'(#%plain-module-begin form ...)
                               'module-begin
                               (list #'module*))])
-         (syntax-case e (module module* quote #%plain-app begin-for-syntax)
+         (syntax-case e (module module* quote #%plain-app)
            [(mod-beg
              (#%plain-app + (quote 1) (quote 2))
              (module* q #f 10)
-             (module* z #f 11)
-             (begin-for-syntax (module* r #f 12)))
+             (module* z #f 11))
             'ok]
            [else (error 'test "bad local-expand result: ~s" (syntax->datum e))])
          e)])))
 (module m2-for-local-expand 'm1-for-local-expand
   (+ 1 2)
-  (module* q #f 10)
-  (module* z #f 11)
-  (begin-for-syntax (module* r #f 12)))
+  (module* q #f 10) (module* z #f 11))
 
 
 (module uses-internal-definition-context-around-id racket/base
@@ -697,30 +693,32 @@
     (parameterize ([current-output-port o]
                    [current-error-port e]
                    [current-namespace (make-base-namespace)])
-      (call-with-continuation-prompt
-       (lambda ()
-         (eval
-          `(module m racket/base
-            (require (for-syntax racket/base))
-            
-            (define v 0)
-            
-            (begin-for-syntax
-              (struct e (p)
-                      #:property ,prop:macro ,(if (eq? prop:macro 'prop:procedure)
-                                                  0
-                                                  (list #'quote-syntax
-                                                        (syntax-property #'v
-                                                                         'not-free-identifier=?
-                                                                         #t)))
-                      #:property prop:expansion-contexts ',contexts))
-            
-            (define-syntax m (e (lambda (stx)
-                                  (displayln (syntax-local-context))
-                                  #'10)))
-            
-            ,(wrap 'm)))
-         (dynamic-require (if sub? '(submod 'm sub) ''m) #f))))
+      ;; these tests rely on errors printing to the current-error-port
+      (with-handlers ([exn:fail? (lambda (e) ((error-display-handler) (exn-message e) e))])
+        (call-with-continuation-prompt
+         (lambda ()
+           (eval
+            `(module m racket/base
+               (require (for-syntax racket/base))
+               
+               (define v 0)
+               
+               (begin-for-syntax
+                 (struct e (p)
+                   #:property ,prop:macro ,(if (eq? prop:macro 'prop:procedure)
+                                               0
+                                               (list #'quote-syntax
+                                                     (syntax-property #'v
+                                                                      'not-free-identifier=?
+                                                                      #t)))
+                   #:property prop:expansion-contexts ',contexts))
+               
+               (define-syntax m (e (lambda (stx)
+                                     (displayln (syntax-local-context))
+                                     #'10)))
+               
+               ,(wrap 'm)))
+           (dynamic-require (if sub? '(submod 'm sub) ''m) #f)))))
     (list (get-output-string o)
           (if error-rx
               (let ([m (regexp-match error-rx (get-output-string e))])
@@ -2338,6 +2336,57 @@
         (letrec-values ([(foo) (stash x)])
           (define x 2)
           (restore))))
+
+;; ----------------------------------------
+;; Make sure somethign reasonable happens when a `for-syntax` `define`
+;; is seen via `local-expand` but is not preserved in the expansion
+
+(module module-compiles-but-does-not-visit racket/base
+  (require (for-syntax racket/base))
+
+  (begin-for-syntax
+    (when (eq? (syntax-local-context) 'module)
+      (local-expand
+       #'(#%plain-module-begin
+          (begin-for-syntax
+            (define x 42)))
+       'module-begin
+       '())))
+
+  (begin-for-syntax
+    ;; Weird: can be 42 at compile time, but since the for-syntax
+    ;; `define` did not survive in the fully expanded form, it
+    ;; turns into a reference to an undefined variable.
+    x))
+
+(err/rt-test (begin
+               (eval '(require 'module-compiles-but-does-not-visit))
+               ;; triggers visit:
+               (eval #t))
+             exn:fail:contract:variable?)
+
+;; ----------------------------------------
+;; Make sure a reasonable exceptoion happens when `local-expand`
+;; is misused under `begin-for-syntax`
+
+(module module-also-compiles-but-does-not-visit racket/base
+  (require (for-syntax racket/base))
+
+  (begin-for-syntax
+    (local-expand
+     #'(#%plain-module-begin
+        (begin-for-syntax
+          (define x 42)))
+     'module-begin
+     '())))
+
+(err/rt-test (begin
+               (eval '(require 'module-also-compiles-but-does-not-visit))
+               ;; triggers visit:
+               (eval #t))
+             (lambda (exn)
+               (and (exn:fail:syntax? exn) ; the error is from `#%plain-module-begin`
+                    (regexp-match? #rx"not currently transforming a module" (exn-message exn)))))
 
 ;; ----------------------------------------
 

@@ -10,6 +10,8 @@
          "generate.rkt"
          "arrow-common.rkt"
          "arrow-higher-order.rkt"
+         "arrow-collapsible.rkt"
+         "collapsible-common.rkt"
          "list.rkt"
          racket/stxparam)
 
@@ -1543,7 +1545,7 @@
                (base->-chaperone-constructor ->stct)
                (base->-method? ->stct)
                #f)))
-  (define late-neg-proj
+  (define collapsible-late-neg-proj
     (λ (->stct)
       (->-proj is-impersonator? ->stct
                (base->-min-arity ->stct)
@@ -1558,6 +1560,7 @@
                (base->-method? ->stct)
                #t)))
   (build-X-property
+   #:trusted trust-me
    #:name (base->-name #|print-as-method-if-method|# #t)
    #:first-order ->-first-order
    #:projection
@@ -1572,7 +1575,7 @@
    #:generate ->-generate
    #:exercise ->-exercise
    #:val-first-projection val-first-proj
-   #:late-neg-projection late-neg-proj))
+   #:collapsible-late-neg-projection collapsible-late-neg-proj))
 
 (define (->-stronger this that)
   (and (base->? that)
@@ -1730,7 +1733,7 @@
                                (unless (= 1 (length other))
                                  (raise-wrong-number-of-args-error
                                   #:missing-party neg-party
-                                  blame f (length other) 1 1 1
+                                  blame f (length other) 1 1
                                   #f)) ; not a method contract
                                (values (rng-checker f blame neg-party) (car other))))])
                          #f))

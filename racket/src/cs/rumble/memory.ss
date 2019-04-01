@@ -19,6 +19,15 @@
                post-allocated post-allocated+overhead post-time post-cpu-time)
     (void)))
 
+;; #f or a procedure that accepts `compute-size-increments` to be
+;; called in any Chez Scheme thread (with all other threads paused)
+;; after each major GC; this procedure must not do anything that might
+;; use "control.ss":
+(define reachable-size-increments-callback #f)
+
+(define (set-reachable-size-increments-callback! proc)
+  (set! reachable-size-increments-callback proc))
+
 ;; Replicate the counting that `(collect)` would do
 ;; so that we can report a generation to the notification
 ;; callback
@@ -61,7 +70,10 @@
                                 pre-allocated pre-allocated+overhead pre-time pre-cpu-time
                                 post-allocated  (current-memory-bytes) (real-time) (cpu-time)))
       (poll-foreign-guardian)
-      (run-collect-callbacks cdr))))
+      (run-collect-callbacks cdr)
+      (when (and reachable-size-increments-callback
+                 (fx= gen (collect-maximum-generation)))
+        (reachable-size-increments-callback compute-size-increments)))))
 
 (define collect-garbage
   (case-lambda
@@ -91,9 +103,25 @@
     (cond
      [(not mode) (bytes-allocated)]
      [(eq? mode 'cumulative) (sstats-bytes (statistics))]
-     [else
-      ;; must be a custodian...
-      (bytes-allocated)])]))
+     ;; must be a custodian; hook is reposnsible for complaining if not
+     [else (custodian-memory-use mode (bytes-allocated))])]))
+
+(define custodian-memory-use (lambda (mode all) all))
+(define (set-custodian-memory-use-proc! proc) (set! custodian-memory-use proc))
+
+(define immediate-allocation-check (lambda (n) (void)))
+(define (set-immediate-allocation-check-proc! proc) (set! immediate-allocation-check proc))
+
+(define (guard-large-allocation who what len size)
+  (when (exact-nonnegative-integer? len)
+    (let ([n (* len size)])
+      (unless (fixnum? n)
+        (raise (|#%app|
+                exn:fail:out-of-memory
+                (#%format "out of memory making ~a\n  length: ~a"
+                          what len)
+                (current-continuation-marks))))
+      (immediate-allocation-check n))))
 
 (define prev-stats-objects #f)
 
@@ -111,9 +139,9 @@
            [get-count (lambda (static?) (lambda (e) (apply + (map (extract static? cadr) (cdr e)))))]
            [get-bytes (lambda (static?) (lambda (e) (apply + (map (extract static? cddr) (cdr e)))))]
            [pad (lambda (s n)
-                  (string-append (make-string (max 0 (- n (string-length s))) #\space) s))]
+                  (string-append (#%make-string (max 0 (- n (string-length s))) #\space) s))]
            [pad-right (lambda (s n)
-                        (string-append s (make-string (max 0 (- n (string-length s))) #\space)))]
+                        (string-append s (#%make-string (max 0 (- n (string-length s))) #\space)))]
            [commas (lambda (n)
                      (let* ([l (string->list (number->string n))]
                             [len (length l)])
@@ -151,7 +179,7 @@
                        (cond
                         [(null? args) "\n"]
                         [(< actual-col want-col)
-                         (string-append (make-string (- want-col actual-col) #\space)
+                         (string-append (#%make-string (- want-col actual-col) #\space)
                                         (loop args want-col want-col))]
                         [(integer? (car args))
                          (loop (cons (pad (commas (car args))
@@ -254,6 +282,8 @@
        (lambda (o) (eq? o v)))]
     [(eq? 'code (car args))
      #%$code?]
+    [(eq? 'procedure (car args))
+     #%procedure?]
     [(eq? 'ephemeron (car args))
      ephemeron-pair?]
     [(symbol? (car args))
@@ -294,47 +324,54 @@
 ;; ----------------------------------------
 
 (define-record-type (phantom-bytes create-phantom-bytes phantom-bytes?)
-  (fields [mutable size]))
+  (fields pbv))
 
 (define/who (make-phantom-bytes k)
   (check who exact-nonnegative-integer? k)
-  (create-phantom-bytes k))
+  (let ([ph (create-phantom-bytes (make-phantom-bytevector k))])
+    (when (>= (bytes-allocated) (* 2 allocated-after-major))
+      (collect-garbage))
+    ph))
 
 (define/who (set-phantom-bytes! phantom-bstr k)
   (check who phantom-bytes? phantom-bstr)
   (check who exact-nonnegative-integer? k)
-  (phantom-bytes-size-set! phantom-bstr k))
+  (set-phantom-bytevector-length! (phantom-bytes-pbv phantom-bstr) k))
 
 ;; ----------------------------------------
 
-;; List of (cons <pre> <post>)
+;; List of (cons <pre> <post>), currently suported
+;; only in the original host thread of the original place
 (define collect-callbacks '())
 
 (define (unsafe-add-collect-callbacks pre post)
-  (let ([p (cons pre post)])
-    (with-interrupts-disabled
-     (set! collect-callbacks (cons p collect-callbacks)))
-    p))
+  (when (in-original-host-thread?)
+    (let ([p (cons pre post)])
+      (with-interrupts-disabled
+       (set! collect-callbacks (cons p collect-callbacks)))
+      p)))
 
 (define (unsafe-remove-collect-callbacks p)
-  (with-interrupts-disabled
-   (set! collect-callbacks (#%remq p collect-callbacks))))
+  (when (in-original-host-thread?)
+    (with-interrupts-disabled
+     (set! collect-callbacks (#%remq p collect-callbacks)))))
 
 (define (run-collect-callbacks sel)
-  (let loop ([l collect-callbacks])
-    (unless (null? l)
-      (let ([v (sel (car l))])
-        (let loop ([i 0] [save #f])
-          (unless (fx= i (#%vector-length v))
-            (loop (fx+ i 1)
-                  (run-one-collect-callback (#%vector-ref v i) save sel))))
-        (loop (cdr l))))))
+  (when (in-original-host-thread?)
+    (let loop ([l collect-callbacks])
+      (unless (null? l)
+        (let ([v (sel (car l))])
+          (let loop ([i 0] [save #f])
+            (unless (fx= i (#%vector-length v))
+              (loop (fx+ i 1)
+                    (run-one-collect-callback (#%vector-ref v i) save sel))))
+          (loop (cdr l)))))))
 
 (define-syntax (osapi-foreign-procedure stx)
   (syntax-case stx ()
     [(_ s ...)
      (case (machine-type)
-       [(a6nt ta6nt i3nt ti3nt) #'(foreign-procedure _stdcall s ...)]
+       [(i3nt ti3nt) #'(foreign-procedure __stdcall s ...)]
        [else #'(foreign-procedure s ...)])]))
 
 ;; This is an inconvenient callback interface, certainly, but it

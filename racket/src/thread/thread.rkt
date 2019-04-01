@@ -40,7 +40,7 @@
          break-enabled
          check-for-break
          break-enabled-key
-         current-break-suspend
+         current-breakable-atomic
          
          thread-push-kill-callback!
          thread-pop-kill-callback!
@@ -80,7 +80,8 @@
 
            current-break-enabled-cell
            check-for-break
-           current-break-suspend
+
+           set-force-atomic-timeout-callback!
 
            break-max))
 
@@ -145,11 +146,11 @@
                         #:initial? [initial? #f]
                         #:suspend-to-kill? [suspend-to-kill? #f])
   (check who (procedure-arity-includes/c 0) proc)
-  (define p (if at-root?
+  (define p (if (or at-root? initial?)
                 root-thread-group
                 (current-thread-group)))
-  (define e (make-engine (lambda ()
-                           (call-with-continuation-prompt proc))
+  (define e (make-engine proc
+                         (default-continuation-prompt-tag)
                          (if (or initial? at-root?)
                              break-enabled-default-cell
                              (current-break-enabled-cell))
@@ -191,7 +192,7 @@
                     void ; condition-wakeup
                     )) 
   ((atomically
-    (define cref (and c (unsafe-custodian-register c t remove-thread-custodian #f #t)))
+    (define cref (and c (custodian-register-thread c t remove-thread-custodian)))
     (cond
       [(or (not c) cref)
        (set-thread-custodian-references! t (list cref))
@@ -246,9 +247,9 @@
 (define (thread-dead! t)
   (assert-atomic-mode)
   (set-thread-engine! t 'done)
+  (run-interrupt-callback t)
   (when (thread-dead-sema t)
     (semaphore-post-all (thread-dead-sema t)))
-  (run-interrupt-callback t)
   (unless (thread-descheduled? t)
     (thread-group-remove! (thread-parent t) t))
   (remove-from-sleeping-threads! t)
@@ -332,7 +333,8 @@
          ;; Check whether the current thread was terminated
          (let ([t (current-thread)])
            (when t ; in case custodians used (for testing) without threads
-             (when (thread-dead? t)
+             (when (or (thread-dead? t)
+                       (null? (thread-custodian-references t)))
                (engine-block))
              (check-for-break-after-kill))))))
 
@@ -386,6 +388,10 @@
   (define sleeping (sandman-add-sleeping-thread! t ext-events))
   (set-thread-sleeping! t sleeping))
 
+(define force-atomic-timeout-callback void)
+(define (set-force-atomic-timeout-callback! proc)
+  (set! force-atomic-timeout-callback proc))
+
 ;; in atomic mode
 ;; Removes a thread from its thread group, so it won't be scheduled;
 ;; returns a thunk to be called in out of atomic mode to swap out the
@@ -400,10 +406,15 @@
     (add-to-sleeping-threads! t (sandman-merge-timeout #f timeout-at)))
   (when (eq? t (current-thread))
     (thread-did-work!))
+  ;; Beware that this thunk is not used when a thread is descheduled
+  ;; by a custodian callback
   (lambda ()
     (when (eq? t (current-thread))
-      (when (positive? (current-atomic))
-        (internal-error "attempt to deschedule the current thread in atomic mode"))
+      (let loop ()
+        (when (positive? (current-atomic))
+          (if (force-atomic-timeout-callback)
+              (loop)
+              (internal-error "attempt to deschedule the current thread in atomic mode"))))
       (engine-block)
       (check-for-break))))
 
@@ -453,7 +464,9 @@
 
 ;; in atomic mode
 ;; Returns a thunk to call to handle the case that
-;; the current thread is suspended
+;; the current thread is suspended; beware that the
+;; thunk is not used when `custodian-shutdown-all`
+;; suspends a thread
 (define (do-thread-suspend t)
   (assert-atomic-mode)
   (cond
@@ -708,18 +721,16 @@
 ;; A continuation-mark key (not made visible to regular Racket code):
 (define break-enabled-default-cell (make-thread-cell #t))
 
-;; For disabling breaks, such as through `unsafe-start-atomic`:
-(define-place-local break-suspend 0)
-(define current-break-suspend
-  (case-lambda
-    [() break-suspend]
-    [(v) (set! break-suspend v)]))
+;; For enable breaks despite atomic mode, such as through
+;; `unsafe-start-breakable-atomic`; breaks are enabled as long as
+;; `current-atomic` does not exceed `current-breakable-atomic`:
+(define current-breakable-atomic (make-pthread-parameter 0))
 
 (define (current-break-enabled-cell)
   (continuation-mark-set-first #f
                                break-enabled-key
                                break-enabled-default-cell
-                               (root-continuation-prompt-tag)))
+                               (unsafe-root-continuation-prompt-tag)))
 
 (define break-enabled
   (case-lambda
@@ -744,7 +755,7 @@
         [(and (thread-pending-break t)
               (break-enabled)
               (not (thread-ignore-break-cell? t (current-break-enabled-cell)))
-              (zero? (current-break-suspend)))
+              (>= (add1 (current-breakable-atomic)) (current-atomic)))
          (define exn:break* (case (thread-pending-break t)
                               [(hang-up) exn:break:hang-up/non-engine]
                               [(terminate) exn:break:terminate/non-engine]
@@ -794,7 +805,9 @@
              (thread-reschedule! t))))
        void])))
   (when (eq? t check-t)
-    (check-for-break)))
+    (check-for-break)
+    (when (in-atomic-mode?)
+      (add-end-atomic-callback! check-for-break))))
 
 (define (break>? k1 k2)
   (cond
@@ -990,3 +1003,14 @@
 
 (define/who (thread-receive-evt)
   (thread-receiver-evt))
+
+;; ----------------------------------------
+
+(void (set-immediate-allocation-check-proc!
+       ;; Called to check large vector, string, and byte-string allocations
+       (lambda (n)
+         (define t (current-thread))
+         (when t
+           (define mrefs (thread-custodian-references t))
+           (unless (null? mrefs)
+             (custodian-check-immediate-limit (car mrefs) n))))))

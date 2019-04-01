@@ -1,13 +1,11 @@
-(define datums (make-weak-hash))
+(define-thread-local datums (make-weak-hash))
 
 (define intern-regexp? #f)
 (define (set-intern-regexp?! p) (set! intern-regexp? p))
 
 (define (datum-intern-literal v)
   (cond
-   [(or (and (number? v)
-             ;; `eq?` doesn't work on flonums
-             (not (flonum? v)))
+   [(or (number? v)
         (string? v)
         (char? v)
         (bytes? v)

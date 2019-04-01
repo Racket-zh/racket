@@ -9,8 +9,10 @@
          "../contract/base.rkt"
          "../contract/combinator.rkt"
          (only-in "../contract/private/arrow-val-first.rkt" ->-internal ->*-internal)
+         (only-in "../contract/private/prop.rkt" trust-me)
          (only-in "../contract/private/case-arrow.rkt" case->-internal)
-         (only-in "../contract/private/arr-d.rkt" ->d-internal))
+         (only-in "../contract/private/arr-d.rkt" ->d-internal)
+         (submod "../contract/private/collapsible-common.rkt" properties))
 
 (provide make-class/c class/c-late-neg-proj
          blame-add-method-context blame-add-field-context blame-add-init-context
@@ -1082,6 +1084,7 @@
   #:property prop:custom-write custom-write-property-proc
   #:property prop:contract
   (build-contract-property
+   #:trusted trust-me
    #:late-neg-projection class/c-late-neg-proj
    #:name build-class/c-name
    #:stronger class/c-stronger
@@ -1419,32 +1422,41 @@
                 (contract? y)
                 (contract-stronger? x y)))
 
-         (define-values (reverse-without-redundant-ctcs reverse-without-redundant-projs)
+         (define-values (reverse-without-redundant-ctcs
+                         reverse-without-redundant-projs
+                         dropped-something?)
            (let loop ([prior-ctcs '()]
                       [prior-projs '()]
                       [this-ctc (car all-new-ctcs)]
                       [next-ctcs (cdr all-new-ctcs)]
                       [this-proj (car all-new-projs)]
-                      [next-projs (cdr all-new-projs)])
+                      [next-projs (cdr all-new-projs)]
+                      [dropped-something? #f])
              (cond
                [(null? next-ctcs) (values (cons this-ctc prior-ctcs)
-                                          (cons this-proj prior-projs))]
+                                          (cons this-proj prior-projs)
+                                          dropped-something?)]
                [else
                 (if (and (ormap (λ (x) (stronger? x this-ctc)) prior-ctcs)
                          (ormap (λ (x) (stronger? this-ctc x)) next-ctcs))
                     (loop prior-ctcs prior-projs
-                          (car next-ctcs) (cdr next-ctcs) (car next-projs) (cdr next-projs))
+                          (car next-ctcs) (cdr next-ctcs) (car next-projs) (cdr next-projs)
+                          #t)
                     (loop (cons this-ctc prior-ctcs) (cons this-proj prior-projs)
-                          (car next-ctcs) (cdr next-ctcs) (car next-projs) (cdr next-projs)))])))
+                          (car next-ctcs) (cdr next-ctcs) (car next-projs) (cdr next-projs)
+                          dropped-something?))])))
 
          (define unwrapped-class
            (if (has-impersonator-prop:instanceof/c-unwrapped-class? val)
                (get-impersonator-prop:instanceof/c-unwrapped-class val)
                (object-ref val)))
+
          (define wrapped-class
-           (for/fold ([class unwrapped-class])
-               ([proj (in-list reverse-without-redundant-projs)])
-             (proj class)))
+           (if dropped-something?
+               (for/fold ([class unwrapped-class])
+                         ([proj (in-list reverse-without-redundant-projs)])
+                 (proj class))
+               new-cls))
          
          (impersonate-struct
           interposed-val object-ref
@@ -1512,7 +1524,8 @@
 (define-struct base-instanceof/c (class-ctc)
   #:property prop:custom-write custom-write-property-proc
   #:property prop:contract
-  (build-contract-property 
+  (build-contract-property
+   #:trusted trust-me
    #:late-neg-projection instanceof/c-late-neg-proj
    #:name
    (λ (ctc)
@@ -1650,6 +1663,7 @@
   #:property prop:custom-write custom-write-property-proc
   #:property prop:contract
   (build-contract-property
+   #:trusted trust-me
    #:late-neg-projection instanceof/c-late-neg-proj
    #:name
    (λ (ctc)

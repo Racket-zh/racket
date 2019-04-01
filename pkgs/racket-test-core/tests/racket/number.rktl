@@ -5,6 +5,9 @@
 
 (require racket/extflonum racket/random racket/list)
 
+(define has-single-flonum? (not (eq? 'chez-scheme (system-type 'vm))))
+(define has-exact-zero-inexact-complex? (not (eq? 'chez-scheme (system-type 'vm))))
+
 (test #f number? 'a)
 (test #f complex? 'a)
 (test #f real? 'a)
@@ -79,8 +82,8 @@
 (test #f single-flonum? 1.2)
 (test #t flonum? 1.2e3)
 (test #f single-flonum? 1.2e3)
-(test #f flonum? 1.2f3)
-(test #t single-flonum? 1.2f3)
+(test (not has-single-flonum?) flonum? 1.2f3)
+(test has-single-flonum? single-flonum? 1.2f3)
 
 (test #t complex? -4.242154731064108e-5-6.865001427422244e-5i)
 (test #f exact? -4.242154731064108e-5-6.865001427422244e-5i)
@@ -119,32 +122,32 @@
 (test #t real? +inf.f)
 (test #f rational? +inf.f)
 (test #f integer? +inf.f)
-(test #f flonum? +inf.f)
-(test #t single-flonum? +inf.f)
+(test (not has-single-flonum?) flonum? +inf.f)
+(test has-single-flonum? single-flonum? +inf.f)
 
 (test #t number? -inf.f)
 (test #t complex? -inf.f)
 (test #t real? -inf.f)
 (test #f rational? -inf.f)
 (test #f integer? -inf.f)
-(test #f flonum? -inf.f)
-(test #t single-flonum? -inf.f)
+(test (not has-single-flonum?) flonum? -inf.f)
+(test has-single-flonum? single-flonum? -inf.f)
 
 (test #t number? +nan.f)
 (test #t complex? +nan.f)
 (test #t real? +nan.f)
 (test #f rational? +nan.f)
 (test #f integer? +nan.f)
-(test #f flonum? +nan.f)
-(test #t single-flonum? +nan.f)
+(test (not has-single-flonum?) flonum? +nan.f)
+(test has-single-flonum? single-flonum? +nan.f)
 
 (test #t number? -nan.f)
 (test #t complex? -nan.f)
 (test #t real? -nan.f)
 (test #f rational? -nan.f)
 (test #f integer? -nan.f)
-(test #f flonum? -nan.f)
-(test #t single-flonum? -nan.f)
+(test (not has-single-flonum?) flonum? -nan.f)
+(test has-single-flonum? single-flonum? -nan.f)
 
 (arity-test inexact? 1 1)
 (arity-test number? 1 1)
@@ -163,16 +166,16 @@
 (test "+nan.0" number->string +nan.0)
 (test "+nan.0" number->string +nan.0)
 
-(test "+inf.f" number->string +inf.f)
-(test "-inf.f" number->string -inf.f)
-(test "+nan.f" number->string +nan.f)
-(test "+nan.f" number->string +nan.f)
-(test "0.0f0" number->string 0.0f0)
-(test "0.0f0" number->string 0.0f1)
-(test "0.0f0" number->string 0.0f17)
-(test "13.25f0" number->string 13.25f0)
-(test "13.25f0" number->string 1.325f1)
-(test "-4.25f0" number->string -4.25f0)
+(test (if has-single-flonum? "+inf.f" "+inf.0") number->string +inf.f)
+(test (if has-single-flonum? "-inf.f" "-inf.0") number->string -inf.f)
+(test (if has-single-flonum? "+nan.f" "+nan.0") number->string +nan.f)
+(test (if has-single-flonum? "+nan.f" "+nan.0") number->string +nan.f)
+(test (if has-single-flonum? "0.0f0" "0.0") number->string 0.0f0)
+(test (if has-single-flonum? "0.0f0" "0.0") number->string 0.0f1)
+(test (if has-single-flonum? "0.0f0" "0.0") number->string 0.0f17)
+(test (if has-single-flonum? "13.25f0" "13.25") number->string 13.25f0)
+(test (if has-single-flonum? "13.25f0" "13.25") number->string 1.325f1)
+(test (if has-single-flonum? "-4.25f0" "-4.25") number->string -4.25f0)
 
 (map (lambda (n)
        ;; test that fresh strings are generated:
@@ -332,12 +335,14 @@
 (define (test-i-nan.0 f . args)
   (apply test (make-rectangular +nan.0 +nan.0) f args))
 
-(define (test-nan c)
-  (test #f < +nan.0 c)
-  (test #f > +nan.0 c)
-  (test #f = +nan.0 c)
-  (test #f <= +nan.0 c)
-  (test #f >= +nan.0 c))
+;; these tests are also used as error tests, so provide a way to just call the operation
+(define (test-nan c #:test? [test? #t])
+  (define tst (if test? test (lambda (r c a b) (c a b))))
+  (tst #f < +nan.0 c)
+  (tst #f > +nan.0 c)
+  (tst #f = +nan.0 c)
+  (tst #f <= +nan.0 c)
+  (tst #f >= +nan.0 c))
 (test-nan 0)
 (test-nan 0.0)
 (test-nan 0.3)
@@ -345,7 +350,7 @@
 (test-nan +inf.0)
 (test-nan -inf.0)
 (test-nan (expt 2 90))
-(err/rt-test (test-nan 0.3+0.0i))
+(err/rt-test (test-nan 0.3+0.0i #:test? #f))
 (test #f = +nan.0 1+2i)
 (test #f = +nan.0 (make-rectangular +inf.0 -inf.0))
 
@@ -721,9 +726,10 @@
 (err/rt-test (inexact->exact -inf.0))
 (err/rt-test (inexact->exact +nan.0))
 
-(err/rt-test (inexact->exact +inf.f) (lambda (exn) (regexp-match? #rx"[+]inf[.]f" (exn-message exn))))
-(err/rt-test (inexact->exact -inf.f) (lambda (exn) (regexp-match? #rx"[-]inf[.]f" (exn-message exn))))
-(err/rt-test (inexact->exact +nan.f) (lambda (exn) (regexp-match? #rx"[+]nan[.]f" (exn-message exn))))
+(when has-single-flonum?
+  (err/rt-test (inexact->exact +inf.f) (lambda (exn) (regexp-match? #rx"[+]inf[.]f" (exn-message exn))))
+  (err/rt-test (inexact->exact -inf.f) (lambda (exn) (regexp-match? #rx"[-]inf[.]f" (exn-message exn))))
+  (err/rt-test (inexact->exact +nan.f) (lambda (exn) (regexp-match? #rx"[+]nan[.]f" (exn-message exn)))))
 
 (test 2.0f0 real->single-flonum 2)
 (test 2.25f0 real->single-flonum 2.25)
@@ -1246,7 +1252,8 @@
 (err/rt-test (arithmetic-shift 1.0 1))
 (err/rt-test (arithmetic-shift 1 1.0))
 (err/rt-test (arithmetic-shift 1 1.0+0.0i))
-(err/rt-test (arithmetic-shift 1 (expt 2 80)) exn:fail:out-of-memory?)
+(unless (eq? 'chez-scheme (system-type 'vm))
+  (err/rt-test (eval '(arithmetic-shift 1 (expt 2 80))) exn:fail:out-of-memory?))
 
 (test #f bitwise-bit-set? 13 1)
 (test #t bitwise-bit-set? 13 2)
@@ -1587,22 +1594,27 @@
 (test -inf.0 imag-part (make-rectangular +inf.0 -inf.0))
 
 (test (make-rectangular +inf.0 -inf.0) * 1. (make-rectangular +inf.0 -inf.0))
-(test (make-rectangular +inf.0 +inf.0) * +1.0i (make-rectangular +inf.0 -inf.0))
+(when has-exact-zero-inexact-complex?
+  (test (make-rectangular +inf.0 +inf.0) * +1.0i (make-rectangular +inf.0 -inf.0)))
 (test (make-rectangular -inf.0 +inf.0) * -3. (make-rectangular +inf.0 -inf.0))
 (test (make-rectangular +inf.0 -inf.0) * (make-rectangular +inf.0 -inf.0) 1.)
-(test (make-rectangular +inf.0 +inf.0) * (make-rectangular +inf.0 -inf.0) +1.0i)
+(when has-exact-zero-inexact-complex?
+  (test (make-rectangular +inf.0 +inf.0) * (make-rectangular +inf.0 -inf.0) +1.0i))
 (test (make-rectangular -inf.0 +inf.0) * (make-rectangular +inf.0 -inf.0) -3.)
 (test (make-rectangular +inf.0 -inf.0) / (make-rectangular +inf.0 -inf.0) 1.)
-(test (make-rectangular -inf.0 -inf.0) / (make-rectangular +inf.0 -inf.0) +1.0i)
+(when has-exact-zero-inexact-complex?
+  (test (make-rectangular -inf.0 -inf.0) / (make-rectangular +inf.0 -inf.0) +1.0i))
 (test (make-rectangular -inf.0 +inf.0) / (make-rectangular +inf.0 -inf.0) -3.)
 
 ;; Test division with exact zeros in demoniator where
 ;;  the exact zero gets polluted to an inexact zero unless
 ;;  it's special-cased
-(test 0-0.0i / 0+1.0i -inf.0)
+(when has-exact-zero-inexact-complex?
+  (test 0-0.0i / 0+1.0i -inf.0))
 (test -0.0-0.0i / 1.0+1.0i -inf.0)
-(test -0.0 / 0+1.0i 0-inf.0i)
-(test -0.0+0.0i / 1.0+1.0i 0-inf.0i)
+(when has-exact-zero-inexact-complex?
+  (test -0.0 / 0+1.0i 0-inf.0i)
+  (test -0.0+0.0i / 1.0+1.0i 0-inf.0i))
 
 (test-i-nan.0 * 1.+0.i (make-rectangular +inf.0 -inf.0))
 (test-i-nan.0 * 0.+1.0i (make-rectangular +inf.0 -inf.0))
@@ -1634,8 +1646,11 @@
 (test +inf.0 magnitude +inf.0+1i)
 (test +inf.0 magnitude +inf.0+0.0i)
 (test +inf.0 magnitude 0.0+inf.0i)
-(test +nan.0 magnitude +nan.0+inf.0i)
-(test +nan.0 magnitude +inf.0+nan.0i)
+(test +inf.0 magnitude +nan.0+inf.0i)
+(test +inf.0 magnitude +inf.0+nan.0i)
+(test +nan.0 magnitude +nan.0+2.0i)
+(test +nan.0 magnitude +2.0+nan.0i)
+(test +nan.0 magnitude 0+nan.0i)
 (test +inf.f magnitude 3.0f0-inf.fi)
 (test +nan.f magnitude 3.0f0+nan.fi)
 (test 3.0f0 magnitude 3.0f0+0.0f0i)
@@ -1654,8 +1669,6 @@
   (test pi angle (- big-num))
   (test pi angle -3/4)
   (test pi angle -3+0.0i))
-(test -inf.0 atan 0+i)
-(test -inf.0 atan 0-i)
 
 (err/rt-test (angle 'a))
 (err/rt-test (angle 0) exn:fail:contract:divide-by-zero?)
@@ -1723,7 +1736,10 @@
 (arity-test real-part 1 1)
 (arity-test imag-part 1 1)
 
-(define (z-round c) (make-rectangular (round (real-part c)) (round (imag-part c))))
+(define (z-round c)
+  (define (neg0-to-pos0 n) (if (eqv? n -0.0) 0.0 n))
+  (make-rectangular (neg0-to-pos0 (round (real-part c)))
+                    (neg0-to-pos0 (round (imag-part c)))))
 
 (test -1 * +i +i)
 (test 1 * +i -i)
@@ -1796,7 +1812,10 @@
 (test '(0+97184015999i -45402459391) call-with-values (lambda () (integer-sqrt/remainder (expt -2 73))) list)
 
 (test '(2.0 1.0) call-with-values (lambda () (integer-sqrt/remainder 5.0)) list)
-(test '(0+2.0i -1.0) call-with-values (lambda () (integer-sqrt/remainder -5.0)) list)
+(test (if has-exact-zero-inexact-complex?
+          '(0+2.0i -1.0)
+          '(0+2.0i -1.0-0.0i))
+      call-with-values (lambda () (integer-sqrt/remainder -5.0)) list)
 (err/rt-test (integer-sqrt/remainder 5.0+0.0i))
 (err/rt-test (integer-sqrt/remainder -5.0+0.0i))
 
@@ -1809,7 +1828,7 @@
 (let ([v (expt -3/4+7/8i 2+3i)])
   (test 3826.0 floor (* 10000000 (real-part v)))
   (test -137.0 ceiling (* 100000 (imag-part v))))
-(test 49.0+0.0i expt 7 2+0.0i)
+(test 49.0+0.0i z-round (expt 7 2+0.0i))
 (test 49.0 floor (* 10 (expt 2 2.3)))
 (test 189.0 floor (* 1000 (expt 2.3 -2)))
 (test 1/4 expt 2 -2)
@@ -1906,6 +1925,7 @@
 (err/rt-test (expt 0 0.0+2i) exn:fail:contract:divide-by-zero?)
 (err/rt-test (expt 0 -0.0+2i) exn:fail:contract:divide-by-zero?)
 (err/rt-test (expt 0 0+0.0i) exn:fail:contract:divide-by-zero?)
+(err/rt-test (expt 0 +nan.0+1.0i) exn:fail:contract:divide-by-zero?)
 
 (err/rt-test (expt 'a 0))
 (err/rt-test (expt 'a 1))
@@ -2064,7 +2084,7 @@
 (test 125.0d0 round (* 1000 (magnitude (asin (sin 0.125+0.0d0i)))))
 (test 125.0 round (* 1000 (asin (sin 1/8))))
 (test 125.0 round (* 1000 (acos (cos 0.125))))
-(test 125.0d0-0.0i z-round (* 1000 (acos (cos 0.125+0.0d0i))))
+(test 125.0d0+0.0i z-round (* 1000 (acos (cos 0.125+0.0d0i))))
 (test 125.0 round (* 1000 (acos (cos 1/8))))
 (test 785.0 round (* 1000 (atan 1 1)))
 (test 785.0 round (* 1000 (atan 1.0 1.0)))
@@ -2074,14 +2094,18 @@
 (test -785.0 round (* 1000 (atan -1 1)))
 (test 785.0 round (* 1000 (atan 1)))
 (test 100.0 round (* 100 (tan (atan 1))))
-(test 100.0-0.0i z-round (* 100 (tan (+ +0.0i (atan 1)))))
+(test 100.0+0.0i z-round (* 100 (tan (+ +0.0i (atan 1)))))
 (test 0.0 atan 0.0 0)
 (test 0 atan 0 1)
 (test 0 atan 0 (expt 2 100))
 (test 0 atan 0 5/2)
-(test 0.0 atan 0 1.0)
+(test 0 atan 0 1.0)
 (test 314.0 round (* 100 (atan 0 -1)))
 (err/rt-test (atan 0 0) exn:fail:contract:divide-by-zero?)
+(err/rt-test (atan 0+i) exn:fail:contract:divide-by-zero?)
+(err/rt-test (atan 0-i) exn:fail:contract:divide-by-zero?)
+(test -inf.0 atan 0+1.0i)
+(test -inf.0 atan 0-1.0i)
 (test 1024.0 round (expt 2.0 10.0))
 (test 1024.0 round (expt -2.0 10.0))
 (test -512.0 round (expt -2.0 9.0))
@@ -2230,7 +2254,8 @@
 (test 0+1175.i z-round (* 1000 (sin 0+i)))
 (test -642.-1069.i z-round (* 1000 (cos 2+i)))
 (test -642.-1069.i z-round (* 1000 (cos -2-i)))
-(test 1543. z-round (* 1000 (cos 0+i)))
+(when has-exact-zero-inexact-complex?
+  (test 1543. z-round (* 1000 (cos 0+i))))
 (test 272-1084.i z-round (* 1000 (tan 1-i)))
 (test -272+1084.i z-round (* 1000 (tan -1+i)))
 
@@ -2241,11 +2266,11 @@
 (test 3142.-3688.i z-round (* 1000 (acos -20)))
 
 (define (cs2 c) (+ (* (cos c) (cos c)) (* (sin c) (sin c))))
-(test 0.0 imag-part (cs2 2+3i))
+(test 0.0 round (* 1000 (imag-part (cs2 2+3i))))
 (test 1000.0 round (* 1000 (real-part (cs2 2+3i))))
-(test 0.0 imag-part (cs2 -2+3i))
+(test 0.0 round (* 1000 (imag-part (cs2 -2+3i))))
 (test 1000.0 round (* 1000 (real-part (cs2 -2+3i))))
-(test 0.0 imag-part (cs2 2-3i))
+(test 0.0 round (* 1000 (imag-part (cs2 2-3i))))
 (test 1000.0 round (* 1000 (real-part (cs2 2-3i))))
 
 (test #t positive? (real-part (sqrt (- 1 (* 2+3i 2+3i)))))
@@ -2460,6 +2485,8 @@
 (test 0.1 string->number (string-append "0." (make-string 400 #\0) "1e400"))
 (test 0.1 string->number (string-append "0." (make-string 8000 #\0) "1e8000"))
 (test 1.0e-101 string->number (string-append "0." (make-string 8000 #\0) "1e7900"))
+(test 1.0e-101 string->number (string-append "1/1" (make-string 8000 #\0) "1e7900"))
+(test 1.0e-101 string->number (string-append "1/1" (make-string 8000 #\0) "#e7900"))
 (test +inf.0 string->number (string-append "0." (make-string 400 #\0) "1e1000"))
 (test -inf.0 string->number (string-append "-0." (make-string 400 #\0) "1e1000"))
 (test +inf.0 string->number (string-append "0." (make-string 8000 #\0) "1e8400"))
@@ -2468,6 +2495,19 @@
 (test #t extflonum? (string->extfl-number (string-append "-0." (make-string 8000 #\0) "1t8400")))
 (test #f string->number (string-append "-0." (make-string 8000 #\0) "9e10000") 8)
 (test #f string->number (string-append "0." (make-string 8000 #\0) "e1008") 8)
+(test 1.333602886575971e+241 string->number "#b10e1100100000")
+(test 2.999393627791262e-241 string->number "#b10e-1100100000")
+(test 3.334007216439927e+240 string->number "#b1/10e1100100000")
+(test 1.0 string->number (string-append "#i1" (make-string 8000 #\0) "/" "1" (make-string 8000 #\0)))
+(test 10.0 string->number (string-append "1" (make-string 8000 #\0) "#/" "1" (make-string 8000 #\0)))
+(test 1.0 string->number (string-append "1" (make-string 8000 #\0) "#/" "1" (make-string 8000 #\0) "#"))
+(test 1.0+3.0i string->number (string-append "#i1" (make-string 8000 #\0) "/" "1" (make-string 8000 #\0) "+3.0i"))
+(test 10.0+3.0i string->number (string-append "#i1" (make-string 8000 #\0) "/" "1" (make-string 7998 #\0) "#+3.0i"))
+(test 1.0+0.0i string->number (string-append "#i1" (make-string 8000 #\0) "/" "1" (make-string 8000 #\0) "@0"))
+(test 10.0+0.0i string->number (string-append "#i1" (make-string 8000 #\0) "/" "1" (make-string 7998 #\0) "#@0"))
+(test 1 string->number (string-append "1" (make-string 8000 #\0) "/" "1" (make-string 8000 #\0) "@0"))
+(test 10.0 string->number (string-append "1" (make-string 8000 #\0) "/" "1" (make-string 7998 #\0) "#@0"))
+(test #f zero? (string->number "7.4109846876187e-323"))
 
 (test #t andmap (lambda (x) (and (>= x 0) (< x 10))) (map random '(10 10 10 10)))
 (test (void) random-seed 5)
@@ -2932,9 +2972,10 @@
 (test (expt 2 256) inexact->exact 1.157920892373162d+77)
 (test 115792089237316195423570985008687907853269984665640564039457584007913129639936 inexact->exact 1.157920892373162d+77)
 
-(test 521335/89202980794122492566142873090593446023921664 inexact->exact 5.844367f-39)
-(test 5.844367f-39 real->single-flonum (inexact->exact 5.844367f-39))
-(test (real->double-flonum 5.844367f-39) exact->inexact (inexact->exact 5.844367f-39))
+(when has-single-flonum?
+  (test 521335/89202980794122492566142873090593446023921664 inexact->exact 5.844367f-39)
+  (test 5.844367f-39 real->single-flonum (inexact->exact 5.844367f-39))
+  (test (real->double-flonum 5.844367f-39) exact->inexact (inexact->exact 5.844367f-39)))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -3192,7 +3233,7 @@
 (test 0.5 there-and-back 1/2)
 
 (let ([s (make-bytes 8)]
-      [n (expt (random 100) (- (random 100)))])
+      [n (expt (add1 (random 100)) (- (random 100)))])
   (test s real->floating-point-bytes n 8 #f s)
   (test s real->floating-point-bytes n 8 #f))
 
@@ -3241,49 +3282,50 @@
       (test #f single-flonum-ish? op 2.0f0 0.5)
       (test #t single-flonum-ish? op 2.0f0 1/2)
       (test #t single-flonum-ish? op 4/5 0.5f0))))
-    
 
-(map (check-single-flonum)
-     (list + - * / 
-           add1
-           sub1
-           sqrt
-           expt
-           exp
-           sin
-           cos
-           tan
-           asin
-           acos))
+(when has-single-flonum?
 
-(map (check-single-flonum #:arity-one-only? #t)
-     (list log))
+  (map (check-single-flonum)
+       (list + - * / 
+             add1
+             sub1
+             sqrt
+             expt
+             exp
+             sin
+             cos
+             tan
+             asin
+             acos))
 
-(map (check-single-flonum #:two-arg-real-only? #t)
-     (list atan))
+  (map (check-single-flonum #:arity-one-only? #t)
+       (list log))
 
-(map (check-single-flonum #:real-only? #f #:integer-only? #t)
-     (list quotient
-           remainder
-           modulo))
+  (map (check-single-flonum #:two-arg-real-only? #t)
+       (list atan))
 
-(map (check-single-flonum #:real-only? #t)
-     (list
-      abs
-      max
-      min
-      gcd
-      lcm
-      round
-      floor
-      ceiling
-      truncate))
+  (map (check-single-flonum #:real-only? #f #:integer-only? #t)
+       (list quotient
+             remainder
+             modulo))
+
+  (map (check-single-flonum #:real-only? #t)
+       (list
+        abs
+        max
+        min
+        gcd
+        lcm
+        round
+        floor
+        ceiling
+        truncate)))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; This test once trigggered a crash due to an incorrect
 ;; hard-wired GC declaration for xform:
 
-(let ()
+(when (eq? 'racket (system-type 'vm))
   (define (root n r)
     (expt n (/ 1 r)))
   

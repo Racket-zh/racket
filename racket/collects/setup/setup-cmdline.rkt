@@ -80,6 +80,8 @@
       (add-flags '((make-zo #f)))]
      [("--trust-zos") "Trust existing \".zo\"s (use only with prepackaged \".zo\"s)"
       (add-flags '((trust-existing-zos #t)))]
+     [("--recompile-only") "Fail if compilation must start from source"
+      (add-flags '((recompile-only #t)))]
      [("-x" "--no-launcher") "Do not produce launcher programs"
       (add-flags '((make-launchers #f)))]
      [("-F" "--no-foreign-libs") "Do not install foreign libraries"
@@ -130,6 +132,12 @@
      #:once-each
      [("-j" "--jobs" "--workers") n "Use <n> parallel jobs"
       (add-flags `((parallel-workers ,(string->number n))))]
+     #:once-any
+     [("--places") "Use places for parallel jobs"
+      (add-flags `((parallel-use-places #t)))]
+     [("--processes") "Use processes for parallel jobs"
+      (add-flags `((parallel-use-places #f)))]
+     #:once-each
      [("-v" "--verbose") "See names of compiled files and info printfs"
       (add-flags '((verbose #t)))]
      [("-m" "--make-verbose") "See make and compiler usual messages"
@@ -141,6 +149,10 @@
       (add-flags `((compile-mode ,mode)))]
      [("--fail-fast") "Trigger a break on the first error"
       (add-flags '((fail-fast #t)))]
+     [("--error-out") file "On continuable error, create <file> and exit as success"
+      (add-flags `((next-error-out-file ,file)))]
+     [("--error-in") file "Check <file> for report of previous errors"
+      (add-flags `((previous-error-in-file ,file)))]
      [("-p" "--pause") "Pause at the end if there are any errors"
       (add-flags '((pause-on-errors #t)))]
      #:help-labels

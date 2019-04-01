@@ -11,6 +11,8 @@
 (define work-dir (make-temporary-file "path~a" 'directory))
 (current-directory work-dir)
 
+(test #t port? (current-input-port))
+(test #t port? (current-output-port))
 (test #t input-port? (current-input-port))
 (test #t output-port? (current-output-port))
 (test #t output-port? (current-error-port))
@@ -18,16 +20,40 @@
 (test (void) current-output-port (current-output-port))
 (test (void) current-error-port (current-error-port))
 (test #t call-with-input-file testing.rktl input-port?)
+
+(test #f port? 7)
+(test #f input-port? 7)
+(test #f output-port? 7)
+(test #f terminal-port? 7)
+(test #f file-stream-port? 7)
+
 (define this-file (open-input-file testing.rktl))
+(test #t port? this-file)
 (test #t input-port? this-file)
+(test #f output-port? this-file)
+(test #f terminal-port? this-file)
+(test #t file-stream-port? this-file)
 (close-input-port this-file)
+
 (define this-file (open-input-file testing.rktl #:mode 'binary))
+(test #t port? this-file)
 (test #t input-port? this-file)
+(test #f output-port? this-file)
+(test #f terminal-port? this-file)
+(test #t file-stream-port? this-file)
 (close-input-port this-file)
+
 (define this-file (open-input-file testing.rktl #:mode 'text))
+(test #t port? this-file)
 (test #t input-port? this-file)
+(test #f output-port? this-file)
+(test #f terminal-port? this-file)
+(test #t file-stream-port? this-file)
+(arity-test port? 1 1)
 (arity-test input-port? 1 1)
 (arity-test output-port? 1 1)
+(arity-test terminal-port? 1 1)
+(arity-test file-stream-port? 1 1)
 (arity-test current-input-port 0 1)
 (arity-test current-output-port 0 1)
 (arity-test current-error-port 0 1)
@@ -61,6 +87,7 @@
 (err/rt-test (close-output-port 5))
 (err/rt-test (close-input-port (current-output-port)))
 (err/rt-test (close-output-port (current-input-port)))
+
 (define (check-test-file name)
   (define test-file (open-input-file name))
   (test #t 'input-port?
@@ -334,6 +361,13 @@
 (define tempfilename (make-temporary-file))
 (when (file-exists? tempfilename)
   (delete-file tempfilename))
+
+(err/rt-test (open-output-file tempfilename #:exists 'update) exn:fail:filesystem?)
+(let ([p (open-output-file tempfilename #:exists 'can-update)])
+  (test #t output-port? p)
+  (close-output-port p))
+(delete-file tempfilename)
+
 (let ([p (open-output-file tempfilename)])
   (err/rt-test (write-special 'foo p) exn:application:mismatch?)
   (test #t integer? (port-file-identity p))
@@ -454,7 +488,9 @@
   (close-output-port o))
 (test 900 file-size tempfilename)
 (let ([o (open-output-file tempfilename #:exists 'update)])
+  (file-position o 10)
   (file-truncate o 399)
+  (test 10 file-position o)
   (close-output-port o))
 (test 399 file-size tempfilename)
 
@@ -576,16 +612,16 @@
 (let ([th1 (thread (lambda ()
 		     (display "a" out)))]
       [th2 (thread (lambda ()
-		      (display "a" out)))]
+                     (display "a" out)))]
       [th3 (thread (lambda ()
-		      (display "a" out)))])
+                     (display "a" out)))])
   (test #t thread-running? th1)
   (test #t thread-running? th2)
   (test #t thread-running? th3)
 
   (test 49 read-byte in)
   
-  (sleep 0.1)
+  (sync (system-idle-evt))
 
   (test 2 + 
 	(if (thread-running? th1) 1 0)
@@ -594,7 +630,7 @@
 
   (test 50 read-byte in)
 
-  (sleep 0.1)
+  (sync (system-idle-evt))
 
   (test 1 + 
 	(if (thread-running? th1) 1 0)
@@ -603,7 +639,7 @@
   
   (test 51 read-byte in)
   
-  (sleep 0.1)
+  (sync (system-idle-evt))
 
   (test #f thread-running? th1)
   (test #f thread-running? th2)
@@ -630,6 +666,9 @@
 (let-values ([(r w) (make-pipe #f 'in 'out)])
   (test 'in object-name r)
   (test 'out object-name w))
+(let-values ([(pin pout) (make-pipe 4 'name)])
+  (write-bytes (make-bytes 4) pout)
+  (test #f sync/timeout 0 pout))
 
 (test #t input-port? (make-input-port void void void void))
 (test #t input-port? (make-input-port void void #f void))
@@ -1696,6 +1735,8 @@
 
 ;; The `ffi/file` library - - - - - - - - - - - - - - - - - - -
 
+(define no-op (lambda (x) #f))
+
 (let ()
   (define pub-mod (collection-file-path "list.rkt" "racket"))
   (define priv-mod (collection-file-path "stx.rkt" "racket/private"))
@@ -1724,11 +1765,15 @@
      void void))
 
   (define (mk-fun modes)
-    ;; receives path pointer, casts as int, who cares
-    (get-ffi-obj "scheme_make_integer_value" (ffi-lib #f)
-                 (_fun (path) ::
-                       (path : (_file/guard modes 'me))
-                       -> _scheme)))
+    ;; receives path pointer; the rest doesn't matter
+    (cast no-op
+          ;; turns `no-op` into a callback:
+          (_fun _pointer -> _scheme)
+          ;; turns the callback into a callout, which is what we want
+          ;; to test `_file/guard`:
+          (_fun (path) ::
+                (path : (_file/guard modes 'me))
+                -> _scheme)))
   
   (define (fun path modes)
     ((mk-fun modes) path))

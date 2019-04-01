@@ -1,6 +1,7 @@
 #lang scribble/doc
 @(require "mz.rkt" (for-syntax racket/base) (for-label racket/serialize
-                                                       racket/generic))
+                                                       racket/generic
+                                                       racket/keyword-transform))
 
 @(define posn-eval (make-base-eval))
 @examples[#:hidden #:eval posn-eval
@@ -179,7 +180,8 @@ If @racket[name-id] is supplied via @racket[#:extra-name] and it is
 not @racket[id], then both @racket[name-id] and @racket[id] are bound
 to information about the structure type. Only one of
 @racket[#:extra-name] and @racket[#:name] can be provided within a
-@racket[struct] form.
+@racket[struct] form, and @racket[#:extra-name] cannot be combined
+with @racket[#:omit-define-syntaxes].
 
 @examples[#:eval posn-eval
   (struct ghost (color name) #:prefab #:extra-name GHOST)

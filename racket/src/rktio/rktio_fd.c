@@ -48,6 +48,10 @@ struct rktio_fd_t {
 #endif
 };
 
+struct rktio_fd_transfer_t {
+  rktio_fd_t fd;
+};
+
 /*========================================================================*/
 /* Windows I/O helper structs                                             */
 /*========================================================================*/
@@ -90,14 +94,17 @@ typedef struct Win_FD_Output_Thread {
 # define RKTIO_FD_BUFFSIZE 4096
 
 static void init_read_fd(rktio_t *rktio, rktio_fd_t *rfd);
-static void deinit_read_fd(rktio_t *rktio, rktio_fd_t *rfd, int full_close);
-static void deinit_write_fd(rktio_t *rktio, rktio_fd_t *rfd, int full_close);
+static void deinit_read_fd(rktio_fd_t *rfd, int full_close);
+static void deinit_write_fd(rktio_fd_t *rfd, int full_close);
 
-static void deinit_fd(rktio_t *rktio, rktio_fd_t *rfd, int full_close)
+static void deinit_fd(rktio_fd_t *rfd, int full_close)
 {
-  deinit_read_fd(rktio, rfd, full_close);
-  deinit_write_fd(rktio, rfd, full_close);
+  deinit_read_fd(rfd, full_close);
+  deinit_write_fd(rfd, full_close);
 }
+
+#define DELAYED_CONSOLE_HANDLE ((HANDLE)-2)
+static void force_console(rktio_fd_t *rfd);
 
 static long WINAPI WindowsFDReader(Win_FD_Input_Thread *th);
 static void WindowsFDICleanup(Win_FD_Input_Thread *th, int close_mode);
@@ -170,7 +177,8 @@ rktio_fd_t *rktio_system_fd(rktio_t *rktio, intptr_t system_fd, int modes)
     rfd->sock = (SOCKET)system_fd;
   else
     rfd->fd = (HANDLE)system_fd;
-  if (!(modes & (RKTIO_OPEN_REGFILE | RKTIO_OPEN_NOT_REGFILE | RKTIO_OPEN_SOCKET))) {
+  if (!(modes & (RKTIO_OPEN_REGFILE | RKTIO_OPEN_NOT_REGFILE | RKTIO_OPEN_SOCKET))
+      && (rfd->fd != DELAYED_CONSOLE_HANDLE)) {
     if ((GetFileType(rfd->fd) == FILE_TYPE_DISK))
       rfd->modes |= RKTIO_OPEN_REGFILE;
     if (!(modes & (RKTIO_OPEN_DIR | RKTIO_OPEN_NOT_DIR))) {
@@ -193,7 +201,7 @@ rktio_fd_t *rktio_system_fd(rktio_t *rktio, intptr_t system_fd, int modes)
   return rfd;
 }
 
-intptr_t rktio_fd_system_fd(rktio_t *rktio, rktio_fd_t *rfd)
+intptr_t rktio_internal_fd_system_fd(rktio_fd_t *rfd)
 {
 #ifdef RKTIO_SYSTEM_UNIX
   return rfd->fd;
@@ -201,9 +209,16 @@ intptr_t rktio_fd_system_fd(rktio_t *rktio, rktio_fd_t *rfd)
 #ifdef RKTIO_SYSTEM_WINDOWS
   if (rfd->modes & RKTIO_OPEN_SOCKET)
     return (intptr_t)rfd->sock;
-  else
+  else {
+    force_console(rfd);
     return (intptr_t)rfd->fd;
+  }
 #endif
+}
+
+intptr_t rktio_fd_system_fd(rktio_t *rktio, rktio_fd_t *rfd)
+{
+  return rktio_internal_fd_system_fd(rfd);
 }
 
 rktio_fd_t *rktio_std_fd(rktio_t *rktio, int which)
@@ -215,6 +230,7 @@ rktio_fd_t *rktio_std_fd(rktio_t *rktio, int which)
   return rktio_system_fd(rktio, which, mode | RKTIO_OPEN_NOT_DIR);
 #endif
 #ifdef RKTIO_SYSTEM_WINDOWS
+  HANDLE h;
   switch (which) {
   case RKTIO_STDIN:
     which = STD_INPUT_HANDLE;
@@ -226,8 +242,12 @@ rktio_fd_t *rktio_std_fd(rktio_t *rktio, int which)
     which = STD_ERROR_HANDLE;
     break;
   }
+  h = GetStdHandle(which);
+  if ((h == INVALID_HANDLE_VALUE) || (h == NULL)) {
+    h = DELAYED_CONSOLE_HANDLE; /* => open a console on demand */
+  }
   return rktio_system_fd(rktio,
-			 (intptr_t)GetStdHandle(which),
+			 (intptr_t)h,
 			 mode | RKTIO_OPEN_NOT_DIR);
 #endif
 }
@@ -263,7 +283,9 @@ int rktio_system_fd_is_terminal(rktio_t *rktio, intptr_t fd)
   return isatty(fd);
 #endif
 #ifdef RKTIO_SYSTEM_WINDOWS
-  if (GetFileType((HANDLE)fd) == FILE_TYPE_CHAR) {
+  if ((HANDLE)fd == DELAYED_CONSOLE_HANDLE)
+    return 1; /* delayed console */
+  else if (GetFileType((HANDLE)fd) == FILE_TYPE_CHAR) {
     DWORD mode;
     if (GetConsoleMode((HANDLE)fd, &mode))
       return 1;
@@ -315,9 +337,13 @@ rktio_fd_t *rktio_dup(rktio_t *rktio, rktio_fd_t *rfd)
     HANDLE  newhandle;
     BOOL rc;
 
-    rc = DuplicateHandle(GetCurrentProcess(), rfd->fd,
-                         GetCurrentProcess(), &newhandle,
-                         0, FALSE, DUPLICATE_SAME_ACCESS);
+    if (rfd->fd == DELAYED_CONSOLE_HANDLE) {
+      newhandle = DELAYED_CONSOLE_HANDLE;
+      rc = TRUE;
+    } else
+      rc = DuplicateHandle(GetCurrentProcess(), rfd->fd,
+			   GetCurrentProcess(), &newhandle,
+			   0, FALSE, DUPLICATE_SAME_ACCESS);
 
     if (rc == FALSE) {
       get_windows_error();
@@ -348,19 +374,19 @@ void rktio_reliably_close(intptr_t s)
 }
 #endif
 
-static rktio_ok_t do_close(rktio_t *rktio, rktio_fd_t *rfd, int set_error)
+static rktio_ok_t do_close(rktio_t *rktio /* maybe NULL */, rktio_fd_t *rfd, int set_error)
 {
   int ok;
 
 #ifdef RKTIO_SYSTEM_UNIX
   int cr;
 
+  cr = rktio_reliably_close_err(rfd->fd);
+
 # ifdef RKTIO_USE_FCNTL_AND_FORK_FOR_FILE_LOCKS
-  if (!(rfd->modes & RKTIO_OPEN_SOCKET))
+  if (rktio && !(rfd->modes & RKTIO_OPEN_SOCKET))
     rktio_release_lockf(rktio, rfd->fd);
 # endif
-
-  cr = rktio_reliably_close_err(rfd->fd);
 
   if (cr && set_error) {
     get_posix_error();   
@@ -372,21 +398,22 @@ static rktio_ok_t do_close(rktio_t *rktio, rktio_fd_t *rfd, int set_error)
   if (rfd->modes & RKTIO_OPEN_SOCKET)
     return rktio_socket_close(rktio, rfd, set_error);
 
-  deinit_fd(rktio, rfd, 1);
+  deinit_fd(rfd, 1);
 
   ok = 1;
-  if (!rfd->th && !rfd->oth) {
+  if (!rfd->th && !rfd->oth && (rfd->fd != DELAYED_CONSOLE_HANDLE)) {
     if (!CloseHandle(rfd->fd)) {
       ok = 0;
-      get_windows_error();
+      if (set_error)
+        get_windows_error();
     }
   }
   
 #endif
 
-  if (ok)
+  if (ok || !set_error)
     free(rfd);
-  
+
   return ok;
 }
 
@@ -400,12 +427,36 @@ void rktio_close_noerr(rktio_t *rktio, rktio_fd_t *rfd)
   (void)do_close(rktio, rfd, 0);
 }
 
+rktio_ok_t rktio_internal_close(rktio_t *rktio /* may be NULL */, rktio_fd_t *rfd, int set_error)
+{
+  return do_close(rktio, rfd, set_error);
+}
+
 void rktio_forget(rktio_t *rktio, rktio_fd_t *rfd)
 {
 #ifdef RKTIO_WINDOWS_SYSTEM
-  deinit_fd(rktio, rfd, 1);
+  deinit_fd(rfd, 1);
 #endif
   free(rfd);
+}
+
+/*========================================================================*/
+/* detach, attach, and abandon                                            */
+/*========================================================================*/
+
+rktio_fd_transfer_t *rktio_fd_detach(rktio_t *rktio, rktio_fd_t *rfd)
+{
+  return (rktio_fd_transfer_t *)rfd;
+}
+
+rktio_fd_t *rktio_fd_attach(rktio_t *rktio, rktio_fd_transfer_t *rfdt)
+{
+  return (rktio_fd_t *)rfdt;
+}
+
+void rktio_fd_close_transfer(rktio_fd_transfer_t *rfdt)
+{
+  (void)do_close(NULL, (rktio_fd_t *)rfdt, 0);
 }
 
 /*========================================================================*/
@@ -578,6 +629,9 @@ int poll_write_ready_or_flushed(rktio_t *rktio, rktio_fd_t *rfd, int check_flush
   }
 #endif
 #ifdef RKTIO_SYSTEM_WINDOWS
+  if (rfd->fd == DELAYED_CONSOLE_HANDLE)
+    return RKTIO_POLL_READY;
+
   if (rfd->modes & RKTIO_OPEN_SOCKET) {
     if (check_flushed)
       return RKTIO_POLL_READY;
@@ -664,6 +718,8 @@ void rktio_poll_add(rktio_t *rktio, rktio_fd_t *rfd, rktio_poll_set_t *fds, int 
     fds2 = RKTIO_GET_FDSET(fds, 2);
     RKTIO_FD_SET((intptr_t)rfd->sock, fds2);
   } else {
+    force_console(rfd);
+
     if (modes & RKTIO_POLL_READ) {
       init_read_fd(rktio, rfd);
       if (rfd->th) {
@@ -946,6 +1002,8 @@ static intptr_t adjust_input_text_for_pending_cr(rktio_fd_t *rfd, char *buffer, 
 
 static void init_read_fd(rktio_t *rktio, rktio_fd_t *rfd)
 {
+  force_console(rfd);
+
   if (!rktio_fd_is_regular_file(rktio, rfd) && !rfd->th) {
     /* To get non-blocking I/O for anything that can block, we create
        a separate reader thread.
@@ -988,7 +1046,7 @@ static void init_read_fd(rktio_t *rktio, rktio_fd_t *rfd)
   }
 }
 
-static void deinit_read_fd(rktio_t *rktio, rktio_fd_t *rfd, int full_close)
+static void deinit_read_fd(rktio_fd_t *rfd, int full_close)
 {
   if (rfd->th) {
     CSI_proc csi;
@@ -1208,6 +1266,8 @@ intptr_t rktio_write(rktio_t *rktio, rktio_fd_t *rfd, const char *buffer, intptr
 
   if (rfd->modes & RKTIO_OPEN_SOCKET)
     return rktio_socket_write(rktio, rfd, buffer, len);
+
+  force_console(rfd);
 
   if (rktio_fd_is_regular_file(rktio, rfd)
       || rktio_fd_is_terminal(rktio, rfd)) {
@@ -1686,7 +1746,7 @@ static intptr_t recount_output_wtext(wchar_t *w_buffer, intptr_t winwrote)
   return WideCharToMultiByte(CP_UTF8, 0, w_buffer, winwrote, NULL, 0, NULL, 0);
 }
 
-static void deinit_write_fd(rktio_t *rktio, rktio_fd_t *rfd, int full_close)
+static void deinit_write_fd(rktio_fd_t *rfd, int full_close)
 {
   if (rfd->oth) {
     CSI_proc csi;
@@ -1795,6 +1855,32 @@ static void WindowsFDOCleanup(Win_FD_Output_Thread *oth, int close_mode)
   if (oth->buffer)
     free(oth->buffer);
   free(oth);
+}
+
+#endif
+
+/*========================================================================*/
+/* console                                                                */
+/*========================================================================*/
+
+#ifdef RKTIO_SYSTEM_WINDOWS
+
+static void force_console(rktio_fd_t *rfd) {
+  /* DELAYED_CONSOLE_HANDLE is used to indicate that a console should be created on demand */
+  if (rfd->fd == DELAYED_CONSOLE_HANDLE) {
+    HANDLE h;
+    int which;
+
+    rktio_create_console();
+
+    if (rfd->modes & RKTIO_OPEN_READ)
+      which = STD_INPUT_HANDLE;
+    else
+      which = STD_OUTPUT_HANDLE;
+    h = GetStdHandle(which);
+
+    rfd->fd = h;
+  }
 }
 
 #endif

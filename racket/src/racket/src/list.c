@@ -1,28 +1,3 @@
-/*
-  Racket
-  Copyright (c) 2004-2018 PLT Design Inc.
-  Copyright (c) 1995-2001 Matthew Flatt
-
-    This library is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Library General Public
-    License as published by the Free Software Foundation; either
-    version 2 of the License, or (at your option) any later version.
-
-    This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Library General Public License for more details.
-
-    You should have received a copy of the GNU Library General Public
-    License along with this library; if not, write to the Free
-    Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
-    Boston, MA 02110-1301 USA.
-
-  libscheme
-  Copyright (c) 1994 Brent Benson
-  All rights reserved.
-*/
-
 #include "schpriv.h"
 #include "schmach.h"
 
@@ -39,10 +14,14 @@ READ_ONLY Scheme_Object *scheme_list_p_proc;
 READ_ONLY Scheme_Object *scheme_list_proc;
 READ_ONLY Scheme_Object *scheme_list_star_proc;
 READ_ONLY Scheme_Object *scheme_list_pair_p_proc;
+READ_ONLY Scheme_Object *scheme_append_proc;
 READ_ONLY Scheme_Object *scheme_box_proc;
 READ_ONLY Scheme_Object *scheme_box_immutable_proc;
 READ_ONLY Scheme_Object *scheme_box_p_proc;
 READ_ONLY Scheme_Object *scheme_hash_ref_proc;
+READ_ONLY Scheme_Object *scheme_hash_proc;
+READ_ONLY Scheme_Object *scheme_hasheq_proc;
+READ_ONLY Scheme_Object *scheme_hasheqv_proc;
 READ_ONLY Scheme_Object *scheme_unsafe_cons_list_proc;
 READ_ONLY Scheme_Object *scheme_unsafe_car_proc;
 READ_ONLY Scheme_Object *scheme_unsafe_cdr_proc;
@@ -342,7 +321,9 @@ scheme_init_list (Scheme_Startup_Env *env)
                                                             | SCHEME_PRIM_AD_HOC_OPT);
   scheme_addto_prim_instance("length", p, env);
 
+  REGISTER_SO(scheme_append_proc);
   p = scheme_make_immed_prim(append_prim, "append", 0, -1);
+  scheme_append_proc = p;
   SCHEME_PRIM_PROC_FLAGS(p) |= scheme_intern_prim_opt_flags(SCHEME_PRIM_AD_HOC_OPT);
   scheme_addto_prim_instance ("append", p, env);
   
@@ -590,15 +571,21 @@ scheme_init_list (Scheme_Startup_Env *env)
   SCHEME_PRIM_PROC_FLAGS(p) |= scheme_intern_prim_opt_flags(SCHEME_PRIM_IS_OMITABLE_ALLOCATION);
   scheme_addto_prim_instance("make-immutable-hasheqv", p, env);
 
+  REGISTER_SO(scheme_hash_proc);
   p = scheme_make_immed_prim(direct_hash, "hash", 0, -1);
+  scheme_hash_proc = p;
   /* not SCHEME_PRIM_IS_OMITABLE_ALLOCATION, because `equal?`-hashing functions are called */
   scheme_addto_prim_instance("hash", p, env);
 
+  REGISTER_SO(scheme_hasheq_proc);
   p = scheme_make_immed_prim(direct_hasheq, "hasheq", 0, -1);
+  scheme_hasheq_proc = p;
   SCHEME_PRIM_PROC_FLAGS(p) |= scheme_intern_prim_opt_flags(SCHEME_PRIM_IS_OMITABLE_ALLOCATION);
   scheme_addto_prim_instance("hasheq", p, env);
 
+  REGISTER_SO(scheme_hasheqv_proc);
   p = scheme_make_immed_prim(direct_hasheqv, "hasheqv", 0, -1);
+  scheme_hasheqv_proc = p;
   SCHEME_PRIM_PROC_FLAGS(p) |= scheme_intern_prim_opt_flags(SCHEME_PRIM_IS_OMITABLE_ALLOCATION);
   scheme_addto_prim_instance("hasheqv", p, env);
   
@@ -776,7 +763,7 @@ scheme_init_list (Scheme_Startup_Env *env)
   scheme_addto_prim_instance("ephemeron-value",
 			     scheme_make_immed_prim(ephemeron_value,
 						    "ephemeron-value",
-						    1, 2),
+						    1, 3),
 			     env);
   scheme_addto_prim_instance("ephemeron?",
 			     scheme_make_folding_prim(ephemeronp,
@@ -1790,13 +1777,13 @@ name ## _prim (int argc, Scheme_Object *argv[]) \
 
 LISTFUNC3(cdddr, SCHEME_CDR, SCHEME_CDR, SCHEME_CDR, "(cons/c any/c (cons/c any/c pair?))")
 
-LISTFUNC3(caddr, SCHEME_CAR, SCHEME_CDR, SCHEME_CDR, "(cons/c (cons/c any/c pair?) any/c)")
+LISTFUNC3(caddr, SCHEME_CAR, SCHEME_CDR, SCHEME_CDR, "(cons/c any/c (cons/c any/c pair?))")
 LISTFUNC3(cdadr, SCHEME_CDR, SCHEME_CAR, SCHEME_CDR, "(cons/c any/c (cons/c pair? any/c))")
-LISTFUNC3(cddar, SCHEME_CDR, SCHEME_CDR, SCHEME_CAR, "(cons/c any/c (cons/c any/c pair?))")
+LISTFUNC3(cddar, SCHEME_CDR, SCHEME_CDR, SCHEME_CAR, "(cons/c (cons/c any/c pair?) any/c)")
 
-LISTFUNC3(cdaar, SCHEME_CDR, SCHEME_CAR, SCHEME_CAR, "(cons/c any/c (cons/c pair? any/c))")
+LISTFUNC3(cdaar, SCHEME_CDR, SCHEME_CAR, SCHEME_CAR, "(cons/c (cons/c pair? any/c) any/c)")
 LISTFUNC3(cadar, SCHEME_CAR, SCHEME_CDR, SCHEME_CAR, "(cons/c (cons/c any/c pair?) any/c)")
-LISTFUNC3(caadr, SCHEME_CAR, SCHEME_CAR, SCHEME_CDR, "(cons/c (cons/c pair? any/c) any/c)")
+LISTFUNC3(caadr, SCHEME_CAR, SCHEME_CAR, SCHEME_CDR, "(cons/c any/c (cons/c pair? any/c))")
 
 LISTFUNC3(caaar, SCHEME_CAR, SCHEME_CAR, SCHEME_CAR, "(cons/c (cons/c pair? any/c) any/c)")
 
@@ -1815,22 +1802,22 @@ name ## _prim (int argc, Scheme_Object *argv[]) \
 
 LISTFUNC4(cddddr, SCHEME_CDR, SCHEME_CDR, SCHEME_CDR, SCHEME_CDR, "(cons/c any/c (cons/c any/c (cons/c any/c pair?)))")
 
-LISTFUNC4(cadddr, SCHEME_CAR, SCHEME_CDR, SCHEME_CDR, SCHEME_CDR, "(cons/c (cons/c any/c (cons/c any/c pair?)) any/c)")
-LISTFUNC4(cdaddr, SCHEME_CDR, SCHEME_CAR, SCHEME_CDR, SCHEME_CDR, "(cons/c any/c (cons/c (cons/c any/c pair?) any/c))")
-LISTFUNC4(cddadr, SCHEME_CDR, SCHEME_CDR, SCHEME_CAR, SCHEME_CDR, "(cons/c any/c (cons/c any/c (cons/c pair? any/c)))")
-LISTFUNC4(cdddar, SCHEME_CDR, SCHEME_CDR, SCHEME_CDR, SCHEME_CAR, "(cons/c any/c (cons/c any/c (cons/c any/c pair?)))")
+LISTFUNC4(cadddr, SCHEME_CAR, SCHEME_CDR, SCHEME_CDR, SCHEME_CDR, "(cons/c any/c (cons/c any/c (cons/c any/c pair?)))")
+LISTFUNC4(cdaddr, SCHEME_CDR, SCHEME_CAR, SCHEME_CDR, SCHEME_CDR, "(cons/c any/c (cons/c any/c (cons/c pair? any/c)))")
+LISTFUNC4(cddadr, SCHEME_CDR, SCHEME_CDR, SCHEME_CAR, SCHEME_CDR, "(cons/c any/c (cons/c (cons/c any/c pair?) any/c))")
+LISTFUNC4(cdddar, SCHEME_CDR, SCHEME_CDR, SCHEME_CDR, SCHEME_CAR, "(cons/c (cons/c any/c (cons/c any/c pair?)) any/c)")
 
-LISTFUNC4(caaddr, SCHEME_CAR, SCHEME_CAR, SCHEME_CDR, SCHEME_CDR, "(cons/c (cons/c (cons/c any/c pair?) any/c) any/c)")
-LISTFUNC4(cadadr, SCHEME_CAR, SCHEME_CDR, SCHEME_CAR, SCHEME_CDR, "(cons/c (cons/c any/c (cons/c pair? any/c)) any/c)")
+LISTFUNC4(caaddr, SCHEME_CAR, SCHEME_CAR, SCHEME_CDR, SCHEME_CDR, "(cons/c any/c (cons/c any/c (cons/c pair? any/c)))")
+LISTFUNC4(cadadr, SCHEME_CAR, SCHEME_CDR, SCHEME_CAR, SCHEME_CDR, "(cons/c any/c (cons/c (cons/c any/c pair?) any/c))")
 LISTFUNC4(caddar, SCHEME_CAR, SCHEME_CDR, SCHEME_CDR, SCHEME_CAR, "(cons/c (cons/c any/c (cons/c any/c pair?)) any/c)")
 LISTFUNC4(cdaadr, SCHEME_CDR, SCHEME_CAR, SCHEME_CAR, SCHEME_CDR, "(cons/c any/c (cons/c (cons/c pair? any/c) any/c))")
-LISTFUNC4(cdadar, SCHEME_CDR, SCHEME_CAR, SCHEME_CDR, SCHEME_CAR, "(cons/c any/c (cons/c (cons/c any/c pair?) any/c))")
-LISTFUNC4(cddaar, SCHEME_CDR, SCHEME_CDR, SCHEME_CAR, SCHEME_CAR, "(cons/c any/c (cons/c any/c (cons/c pair? any/c)))")
+LISTFUNC4(cdadar, SCHEME_CDR, SCHEME_CAR, SCHEME_CDR, SCHEME_CAR, "(cons/c (cons/c any/c (cons/c pair? any/c)) any/c)")
+LISTFUNC4(cddaar, SCHEME_CDR, SCHEME_CDR, SCHEME_CAR, SCHEME_CAR, "(cons/c (cons/c (cons/c any/c pair?) any/c) any/c)")
 
-LISTFUNC4(cdaaar, SCHEME_CDR, SCHEME_CAR, SCHEME_CAR, SCHEME_CAR, "(cons/c any/c (cons/c (cons/c pair? any/c) any/c))")
-LISTFUNC4(cadaar, SCHEME_CAR, SCHEME_CDR, SCHEME_CAR, SCHEME_CAR, "(cons/c (cons/c any/c (cons/c pair? any/c)) any/c)")
-LISTFUNC4(caadar, SCHEME_CAR, SCHEME_CAR, SCHEME_CDR, SCHEME_CAR, "(cons/c (cons/c (cons/c any/c pair?) any/c) any/c)")
-LISTFUNC4(caaadr, SCHEME_CAR, SCHEME_CAR, SCHEME_CAR, SCHEME_CDR, "(cons/c (cons/c (cons/c pair? any/c) any/c) any/c)")
+LISTFUNC4(cdaaar, SCHEME_CDR, SCHEME_CAR, SCHEME_CAR, SCHEME_CAR, "(cons/c (cons/c (cons/c pair? any/c) any/c) any/c)")
+LISTFUNC4(cadaar, SCHEME_CAR, SCHEME_CDR, SCHEME_CAR, SCHEME_CAR, "(cons/c (cons/c (cons/c any/c pair?) any/c) any/c)")
+LISTFUNC4(caadar, SCHEME_CAR, SCHEME_CAR, SCHEME_CDR, SCHEME_CAR, "(cons/c (cons/c any/c (cons/c pair? any/c)) any/c)")
+LISTFUNC4(caaadr, SCHEME_CAR, SCHEME_CAR, SCHEME_CAR, SCHEME_CDR, "(cons/c any/c (cons/c (cons/c pair? any/c) any/c))")
 
 LISTFUNC4(caaaar, SCHEME_CAR, SCHEME_CAR, SCHEME_CAR, SCHEME_CAR, "(cons/c (cons/c (cons/c pair? any/c) any/c) any/c)")
 
@@ -2604,7 +2591,14 @@ static Scheme_Object *hash_failed(int argc, Scheme_Object *argv[])
   if (argc == 3) {
     v = argv[2];
     if (SCHEME_PROCP(v)) {
-      scheme_check_proc_arity("hash-ref", 0, 2, argc, argv);
+      if (!scheme_check_proc_arity(NULL, 0, 2, argc, argv)) {
+        scheme_raise_exn(MZEXN_FAIL_CONTRACT_ARITY,
+                         "hash-ref: arity mismatch for failure procedure;\n"
+                         " given procedure does not accept zero arguments\n"
+                         "  procedure: %V",
+                         v);
+        return NULL;
+      }
       return _scheme_tail_apply(v, 0, NULL);
     } else
       return v;
@@ -3643,7 +3637,10 @@ Scheme_Object *scheme_chaperone_hash_table_filtered_copy(Scheme_Object *obj,
   Scheme_Object *a[3], *v, *v2, *idx, *key, *val;
   int is_eq, is_eqv;
 
-  v = SCHEME_CHAPERONE_VAL(obj);
+  if (SCHEME_CHAPERONEP(obj))
+    v = SCHEME_CHAPERONE_VAL(obj);
+  else
+    v = obj;
 
   a[0] = obj;
   is_eq = SCHEME_TRUEP(scheme_hash_eq_p(1, a));
@@ -4056,6 +4053,10 @@ static Scheme_Object *make_ephemeron(int argc, Scheme_Object **argv)
 static Scheme_Object *ephemeron_value(int argc, Scheme_Object **argv)
 {
   Scheme_Object *v;
+
+  /* If there's an argv[2], it will stay live until here, since
+     there's no way for the GC to know that we're not using that
+     value. */
 
   if (!SAME_TYPE(SCHEME_TYPE(argv[0]), scheme_ephemeron_type))
     scheme_wrong_contract("ephemeron-value", "ephemeron?", 0, argc, argv);

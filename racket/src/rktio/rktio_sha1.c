@@ -97,8 +97,6 @@ typedef uintptr_t size_sha1_t;
 
 typedef rktio_sha1_ctx_t SHA1_CTX;
 
-#define SHA1_DIGEST_SIZE 20
-
 static void SHA1_Transform(uint32_sha1_t state[5], const uint8_sha1_t buffer[64]);
 
 #define rol(value, bits) (((value) << (bits)) | ((value) >> (32 - (bits))))
@@ -186,9 +184,6 @@ SHA1_Transform(uint32_sha1_t state[5], const uint8_sha1_t buffer[64])
     state[2] += c;
     state[3] += d;
     state[4] += e;
-
-    /* Wipe variables */
-    a = b = c = d = e = 0;
 }
 
 /* SHA1Init - Initialize new context */
@@ -236,7 +231,7 @@ SHA1_Update(SHA1_CTX *context, const uint8_sha1_t *data, const size_sha1_t len)
 
 /* Add padding and return the message digest. */
 static void
-SHA1_Final(SHA1_CTX *context, uint8_sha1_t digest[SHA1_DIGEST_SIZE])
+SHA1_Final(SHA1_CTX *context, uint8_sha1_t digest[RKTIO_SHA1_DIGEST_SIZE])
 {
     uint32_sha1_t i;
     uint8_sha1_t finalcount[8];
@@ -250,13 +245,12 @@ SHA1_Final(SHA1_CTX *context, uint8_sha1_t digest[SHA1_DIGEST_SIZE])
         SHA1_Update(context, (uint8_sha1_t *) "\0", 1);
     }
     SHA1_Update(context, finalcount, 8);        /* Should cause a SHA1_Transform() */
-    for (i = 0; i < SHA1_DIGEST_SIZE; i++) {
+    for (i = 0; i < RKTIO_SHA1_DIGEST_SIZE; i++) {
         digest[i] = (uint8_sha1_t)
                     ((context->state[i >> 2] >> ((3 - (i & 3)) * 8)) & 255);
     }
 
     /* Wipe variables */
-    i = 0;
     memset(context->buffer, 0, 64);
     memset(context->state, 0, 20);
     memset(context->count, 0, 8);
@@ -275,7 +269,7 @@ main(int argc, char **argv)
 {
     int i, j;
     SHA1_CTX context;
-    unsigned char digest[SHA1_DIGEST_SIZE], buffer[16384];
+    unsigned char digest[RKTIO_SHA1_DIGEST_SIZE], buffer[16384];
     FILE *file;
 
     if (argc > 2) {
@@ -299,7 +293,7 @@ main(int argc, char **argv)
     }
     SHA1_Final(&context, digest);
     fclose(file);
-    for (i = 0; i < SHA1_DIGEST_SIZE / 4; i++) {
+    for (i = 0; i < RKTIO_SHA1_DIGEST_SIZE / 4; i++) {
         for (j = 0; j < 4; j++) {
             printf("%02X", digest[i * 4 + j]);
         }
@@ -326,12 +320,12 @@ static char *test_results[] = {
 };
 
 void
-digest_to_hex(const uint8_sha1_t digest[SHA1_DIGEST_SIZE], char *output)
+digest_to_hex(const uint8_sha1_t digest[RKTIO_SHA1_DIGEST_SIZE], char *output)
 {
     int i, j;
     char *c = output;
 
-    for (i = 0; i < SHA1_DIGEST_SIZE / 4; i++) {
+    for (i = 0; i < RKTIO_SHA1_DIGEST_SIZE / 4; i++) {
         for (j = 0; j < 4; j++) {
             sprintf(c, "%02X", digest[i * 4 + j]);
             c += 2;

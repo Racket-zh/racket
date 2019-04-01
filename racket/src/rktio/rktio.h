@@ -63,7 +63,7 @@ Thread and signal conventions:
    before a second call, different `rktio_t` values can be used freely
    from different threads.
 
- - Except as otherwise specificed, anything created with a particular
+ - Unless otherwise specificed, anything created with a particular
    `rktio_t` must be used with that same `rktio_t` thereafter (and in
    only one thread at a time).
 
@@ -155,9 +155,6 @@ RKTIO_EXTERN rktio_char16_t *rktio_get_dll_path(rktio_char16_t *p);
 /* Reading and writing files                     */
 
 typedef struct rktio_fd_t rktio_fd_t;
-/* Although a `rktio_fd_t` instance is manipulated with respect to
-   some `rktio_t`, it's not attached to the `rktio_t`. The `rktio_fd_t`
-   can be manipulated with a different `rktio_t`. */
 
 /* Mode flags shared in part by `rktio_open` and `rktio_system_fd`. */
 
@@ -193,9 +190,7 @@ typedef struct rktio_fd_t rktio_fd_t;
 RKTIO_EXTERN rktio_fd_t *rktio_system_fd(rktio_t *rktio, intptr_t system_fd, int modes);
 /* A socket (as opposed to other file descriptors) registered this way
    should include include `RKTIO_OPEN_SOCKET` and be non-blocking or
-   use `RKTIO_OPEN_INIT`. The resulting `rktio_fd_t` is not attached
-   to `rktio`; it can be used with other `rktio_t`s, as long as it is
-   used from only one thread at a time. */
+   use `RKTIO_OPEN_INIT`. */
 
 RKTIO_EXTERN_NOERR intptr_t rktio_fd_system_fd(rktio_t *rktio, rktio_fd_t *rfd);
 /* Extracts a native file descriptor or socket. */
@@ -236,8 +231,7 @@ RKTIO_EXTERN void rktio_close_noerr(rktio_t *rktio, rktio_fd_t *fd);
 
 RKTIO_EXTERN rktio_fd_t *rktio_dup(rktio_t *rktio, rktio_fd_t *rfd);
 /* Copies a file descriptor, where each must be closed or forgotten
-   independenty. Like the result of `rktio_system_fd`, the resulting
-   `rktio_fd_t` is not attached to `rktio`. */
+   independenty. */
 
 RKTIO_EXTERN void rktio_forget(rktio_t *rktio, rktio_fd_t *fd);
 /* Deallocates a `rktio_fd_t` without closing the file descriptor,
@@ -250,6 +244,13 @@ RKTIO_EXTERN rktio_fd_t *rktio_std_fd(rktio_t *rktio, int which);
 #define RKTIO_STDIN  0
 #define RKTIO_STDOUT 1
 #define RKTIO_STDERR 2
+
+RKTIO_EXTERN void rktio_create_console(void);
+/* On Windows, ensures that a console is available for output. If a
+   console is created for an application started in GUI mode, The
+   console cannot be closed by the user until the process exits, and
+   then an atexit callback pauses the exit until the user closes the
+   console. */
 
 RKTIO_EXTERN_ERR(RKTIO_READ_ERROR)
 intptr_t rktio_read(rktio_t *rktio, rktio_fd_t *fd, char *buffer, intptr_t len);
@@ -342,6 +343,24 @@ RKTIO_EXTERN rktio_filesize_t *rktio_get_file_position(rktio_t *rktio, rktio_fd_
 
 RKTIO_EXTERN rktio_ok_t rktio_set_file_size(rktio_t *rktio, rktio_fd_t *rfd, rktio_filesize_t sz);
 /* Can report `RKTIO_ERROR_CANNOT_FILE_POSITION` on Windows. */
+
+typedef struct rktio_fd_transfer_t rktio_fd_transfer_t;
+/* Represents an rktio_fd_t that is detached from a specific rktio_t */
+
+RKTIO_EXTERN_NOERR rktio_fd_transfer_t *rktio_fd_detach(rktio_t *rktio, rktio_fd_t *rfd);
+/* Returns a variant of `rfd` that does not depend on `rktio`. The
+   `rfd` must not currently have any file locks, and deatching
+   transfers ownership of `rfd` to the result. To use the result, it
+   must be reattached to some `rktio_t` using rktio_fd_attach, or it
+   can be freed with `rktio_fd_free_transfer`. */
+
+RKTIO_EXTERN_NOERR rktio_fd_t *rktio_fd_attach(rktio_t *rktio, rktio_fd_transfer_t *rfdt);
+/* Attaches a file descriptor that was formerly detached with
+   `rktio_fd_detach` so it can be used again, consuming the `rfdt`. */
+
+RKTIO_EXTERN void rktio_fd_close_transfer(rktio_fd_transfer_t *rfdt);
+/* Closes and frees a detached file descriptor without having to
+   attach it to a `rktio_t`. */
 
 /*************************************************/
 /* Pipes                                         */
@@ -468,6 +487,8 @@ RKTIO_EXTERN rktio_length_and_addrinfo_t *rktio_udp_recvfrom(rktio_t *rktio, rkt
 RKTIO_EXTERN rktio_length_and_addrinfo_t *rktio_udp_recvfrom_in(rktio_t *rktio, rktio_fd_t *rfd,
                                                                 char *buffer, intptr_t start, intptr_t end);
 /* Like `rktio_udp_recvfrom`, but with starting and ending offsets. */
+
+RKTIO_EXTERN rktio_ok_t rktio_udp_set_receive_buffer_size(rktio_t *rktio, rktio_fd_t *rfd, int size);
 
 RKTIO_EXTERN_ERR(RKTIO_PROP_ERROR) rktio_tri_t rktio_udp_get_multicast_loopback(rktio_t *rktio, rktio_fd_t *rfd);
 RKTIO_EXTERN rktio_ok_t rktio_udp_set_multicast_loopback(rktio_t *rktio, rktio_fd_t *rfd, rktio_bool_t on);
@@ -1021,6 +1042,13 @@ RKTIO_EXTERN_NOERR char *rktio_wide_path_to_path(rktio_t *rktio, const rktio_cha
 /* Convert to/from the OS's native path representation. These
    functions are useful only on Windows. The `rktio_path_to_wide_path`
    function can fail and report `RKTIO_ERROR_INVALID_PATH`. */
+
+/*************************************************/
+/* Processor count                               */
+
+RKTIO_EXTERN_NOERR int rktio_processor_count(rktio_t *rktio);
+/* Returns the number of processing units, either as CPUs, cores, or
+   hyoperthreads. */
 
 /*************************************************/
 /* Logging                                       */

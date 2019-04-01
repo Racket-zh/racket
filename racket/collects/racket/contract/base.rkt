@@ -123,7 +123,7 @@
  value-blame
  contract-continuation-mark-key
  list-contract?
- 
+  
  ;; from private/case-arrow.rkt
  case->
 
@@ -143,6 +143,7 @@
  get/build-val-first-projection
 
  suggest/c
+ struct-guard/c
 
  ;; not documented.... (ie unintentional export)
  n->th)

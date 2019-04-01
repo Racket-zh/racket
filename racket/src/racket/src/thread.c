@@ -1,32 +1,9 @@
-/*
-  Racket
-  Copyright (c) 2004-2018 PLT Design Inc.
-  Copyright (c) 1995-2001 Matthew Flatt
-
-    This library is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Library General Public
-    License as published by the Free Software Foundation; either
-    version 2 of the License, or (at your option) any later version.
-
-    This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Library General Public License for more details.
-
-    You should have received a copy of the GNU Library General Public
-    License along with this library; if not, write to the Free
-    Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
-    Boston, MA 02110-1301 USA.
-*/
-
 /* This file implements Racket threads.
 
-   Usually, Racket threads are implemented by copying the stack.
-   The scheme_thread_block() function is called occasionally by the
-   evaluator so that the current thread can be swapped out.
-   do_swap_thread() performs the actual swap. Threads can also be
-   implemented by the OS; the bottom part of this file contains
-   OS-specific thread code.
+   Racket threads are implemented by copying the stack. The
+   scheme_thread_block() function is called occasionally by the
+   evaluator so that the current thread can be swapped out, and
+   do_swap_thread() performs the actual swap.
 
    Much of the work in thread management is knowning when to go to
    sleep, to be nice to the OS outside of Racket. The rest of the
@@ -131,6 +108,7 @@ THREAD_LOCAL_DECL(static intptr_t max_gc_pre_used_bytes);
 #ifdef MZ_PRECISE_GC
 THREAD_LOCAL_DECL(static int num_major_garbage_collections);
 THREAD_LOCAL_DECL(static int num_minor_garbage_collections);
+THREAD_LOCAL_DECL(static intptr_t max_code_page_total);
 #endif
 
 #ifdef RUNSTACK_IS_GLOBAL
@@ -199,6 +177,7 @@ ROSYM static Scheme_Object *read_symbol, *write_symbol, *execute_symbol, *delete
 ROSYM static Scheme_Object *client_symbol, *server_symbol;
 ROSYM static Scheme_Object *major_symbol, *minor_symbol, *incremental_symbol;
 ROSYM static Scheme_Object *cumulative_symbol;
+ROSYM static Scheme_Object *racket_symbol;
 
 THREAD_LOCAL_DECL(static int do_atomic = 0);
 THREAD_LOCAL_DECL(static int missed_context_switch = 0);
@@ -340,6 +319,7 @@ static Scheme_Object *unsafe_add_post_custodian_shutdown(int argc, Scheme_Object
 static Scheme_Object *unsafe_register_process_global(int argc, Scheme_Object *argv[]);
 static Scheme_Object *unsafe_get_place_table(int argc, Scheme_Object *argv[]);
 static Scheme_Object *unsafe_set_on_atomic_timeout(int argc, Scheme_Object *argv[]);
+static Scheme_Object *unsafe_add_global_finalizer(int argc, Scheme_Object *argv[]);
 
 static Scheme_Object *unsafe_os_thread_enabled_p(int argc, Scheme_Object *argv[]);
 static Scheme_Object *unsafe_call_in_os_thread(int argc, Scheme_Object *argv[]);
@@ -410,6 +390,7 @@ static Scheme_Object *unsafe_start_breakable_atomic(int argc, Scheme_Object **ar
 static Scheme_Object *unsafe_end_breakable_atomic(int argc, Scheme_Object **argv);
 static Scheme_Object *unsafe_in_atomic_p(int argc, Scheme_Object **argv);
 
+static Scheme_Object *unsafe_poll_fd(int argc, Scheme_Object **argv);
 static Scheme_Object *unsafe_poll_ctx_fd_wakeup(int argc, Scheme_Object **argv);
 static Scheme_Object *unsafe_poll_ctx_eventmask_wakeup(int argc, Scheme_Object **argv);
 static Scheme_Object *unsafe_poll_ctx_time_wakeup(int argc, Scheme_Object **argv);
@@ -528,6 +509,9 @@ void scheme_init_thread(Scheme_Startup_Env *env)
 
   REGISTER_SO(cumulative_symbol);
   cumulative_symbol = scheme_intern_symbol("cumulative");
+
+  REGISTER_SO(racket_symbol);
+  racket_symbol = scheme_intern_symbol("racket");
 
   ADD_PRIM_W_ARITY("dump-memory-stats"            , scheme_dump_gc_stats, 0, -1, env);
   ADD_PRIM_W_ARITY("vector-set-performance-stats!", current_stats       , 1, 2, env);
@@ -672,7 +656,10 @@ scheme_init_unsafe_thread (Scheme_Startup_Env *env)
 
   ADD_PRIM_W_ARITY("unsafe-make-security-guard-at-root", unsafe_make_security_guard_at_root, 0, 3, env);
 
+  ADD_PRIM_W_ARITY("unsafe-add-global-finalizer", unsafe_add_global_finalizer, 2, 2, env);
+
   scheme_addto_prim_instance("unsafe-poller", scheme_unsafe_poller_proc, env);
+  ADD_PRIM_W_ARITY("unsafe-poll-fd", unsafe_poll_fd, 2, 3, env);
   ADD_PRIM_W_ARITY("unsafe-poll-ctx-fd-wakeup", unsafe_poll_ctx_fd_wakeup, 3, 3, env);
   ADD_PRIM_W_ARITY("unsafe-poll-ctx-eventmask-wakeup", unsafe_poll_ctx_eventmask_wakeup, 2, 2, env);
   ADD_PRIM_W_ARITY("unsafe-poll-ctx-milliseconds-wakeup", unsafe_poll_ctx_time_wakeup, 2, 2, env);
@@ -705,6 +692,8 @@ scheme_init_unsafe_thread (Scheme_Startup_Env *env)
   SCHEME_PRIM_PROC_FLAGS(p) |= scheme_intern_prim_opt_flags(SCHEME_PRIM_IS_BINARY_INLINED
                                                             | SCHEME_PRIM_AD_HOC_OPT);
   scheme_addto_prim_instance("unsafe-place-local-set!", p, env);
+
+  ADD_PRIM_W_ARITY("unsafe-make-srcloc", scheme_unsafe_make_srcloc, 5, 5, env);
 }
 
 void scheme_init_thread_places(void) {
@@ -2910,6 +2899,12 @@ static Scheme_Object *unsafe_os_semaphore_post(int argc, Scheme_Object *argv[])
   ESCAPED_BEFORE_HERE;
 }
 
+static Scheme_Object *unsafe_add_global_finalizer(int argc, Scheme_Object *argv[])
+{
+  scheme_raise_exn(MZEXN_FAIL_UNSUPPORTED, "unsafe-add-global-finalizer: " NOT_SUPPORTED_STR);
+  ESCAPED_BEFORE_HERE;
+}
+
 /*========================================================================*/
 /*                     thread creation and swapping                       */
 /*========================================================================*/
@@ -4004,7 +3999,8 @@ Scheme_Object *scheme_rktio_fd_to_semaphore(rktio_fd_t *fd, int mode)
       /* That's a kind of success, not failure. */
       return NULL;
     }
-    log_fd_semaphore_error();
+    if (!scheme_last_error_is_racket(RKTIO_ERROR_UNSUPPORTED))
+      log_fd_semaphore_error();
     return NULL;    
   }
 
@@ -5429,6 +5425,39 @@ sch_sleep(int argc, Scheme_Object *args[])
   scheme_current_thread->ran_some = 1;
 
   return scheme_void;
+}
+
+Scheme_Object *unsafe_poll_fd(int argc, Scheme_Object **argv)
+{
+  intptr_t sfd = 0;
+  rktio_fd_t *rfd = NULL;
+  int mode = 0;
+  int ready = 0;
+  int is_socket = 1;
+
+  if (!scheme_get_int_val(argv[0], &sfd))
+    scheme_wrong_contract("unsafe-poll-fd", "handle-integer?", 0, argc, argv);
+
+  if (SAME_OBJ(argv[1], read_symbol))
+    mode = RKTIO_POLL_READ;
+  else if (SAME_OBJ(argv[1], write_symbol))
+    mode = RKTIO_POLL_WRITE;
+  else
+    scheme_wrong_contract("unsafe-poll-fd", "(or/c 'read 'write)", 1, argc, argv);
+
+  if (argc > 2) {
+    is_socket = SCHEME_TRUEP(argv[2]);
+  }
+
+  rfd = rktio_system_fd(scheme_rktio, sfd, (is_socket ? RKTIO_OPEN_SOCKET : 0));
+
+  if (mode == RKTIO_POLL_READ)
+    ready = rktio_poll_read_ready(scheme_rktio, rfd);
+  else if (mode == RKTIO_POLL_WRITE)
+    ready = rktio_poll_write_ready(scheme_rktio, rfd);
+
+  rktio_forget(scheme_rktio, rfd);
+  return (ready == RKTIO_POLL_READY) ? scheme_true : scheme_false;
 }
 
 Scheme_Object *unsafe_poll_ctx_fd_wakeup(int argc, Scheme_Object **argv)
@@ -7963,6 +7992,7 @@ static void make_initial_config(Scheme_Thread *p)
 
   init_param(cells, paramz, MZCONFIG_COMPILE_MODULE_CONSTS, scheme_true);
   init_param(cells, paramz, MZCONFIG_USE_JIT, scheme_startup_use_jit ? scheme_true : scheme_false);
+  init_param(cells, paramz, MZCONFIG_COMPILE_TARGET_MACHINE, scheme_startup_compile_machine_independent ? scheme_false : racket_symbol);
 
   {
     Scheme_Object *s;
@@ -8114,6 +8144,14 @@ static void make_initial_config(Scheme_Thread *p)
 Scheme_Config *scheme_minimal_config(void)
 {
   return initial_config;
+}
+
+Scheme_Object *scheme_compile_target_check(int argc, Scheme_Object **argv)
+{
+  if (SCHEME_FALSEP(argv[0]) || SAME_OBJ(argv[0], racket_symbol))
+    return scheme_true;
+  else
+    return scheme_false;
 }
 
 void scheme_set_startup_load_on_demand(int on)
@@ -9331,10 +9369,13 @@ static void inform_GC(int master_gc, int major_gc, int inc_gc,
 {
   Scheme_Logger *logger;
 
-  if (!master_gc 
-      && (pre_used > max_gc_pre_used_bytes)
-      && (max_gc_pre_used_bytes >= 0))
-    max_gc_pre_used_bytes = pre_used;
+  if (!master_gc) {
+    if ((pre_used > max_gc_pre_used_bytes)
+        && (max_gc_pre_used_bytes >= 0))
+      max_gc_pre_used_bytes = pre_used;
+    if (scheme_code_page_total > max_code_page_total)
+      max_code_page_total = scheme_code_page_total;
+  }
 
   if (major_gc)
     num_major_garbage_collections++;
@@ -9416,7 +9457,7 @@ static void log_peak_memory_use()
   if (max_gc_pre_used_bytes > 0) {
     logger = scheme_get_gc_logger();
     if (logger && scheme_log_level_p(logger, SCHEME_LOG_INFO)) {
-      char buf[256], nums[128], *num, *numt, *num2;
+      char buf[256], nums[128], *num, *numc, *numt, *num2;
       intptr_t buflen, allocated_bytes;
 #ifdef MZ_PRECISE_GC
       allocated_bytes = GC_get_memory_ever_allocated();
@@ -9425,14 +9466,16 @@ static void log_peak_memory_use()
 #endif
       memset(nums, 0, sizeof(nums));
       num = gc_num(nums, max_gc_pre_used_bytes);     
+      numc = gc_num(nums, max_code_page_total);
       numt = gc_num(nums, allocated_bytes);
       num2 = gc_unscaled_num(nums, scheme_total_gc_time);
       sprintf(buf,
-              "" PLACE_ID_FORMAT "atexit peak %sK; alloc %sK; major %d; minor %d; %sms",
+              "" PLACE_ID_FORMAT "atexit peak %sK[+%sK]; alloc %sK; major %d; minor %d; %sms",
 #ifdef MZ_USE_PLACES
               scheme_current_place_id,
 #endif
               num,
+              numc,
               numt,
               num_major_garbage_collections,
               num_minor_garbage_collections,

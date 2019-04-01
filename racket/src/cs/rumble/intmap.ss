@@ -140,9 +140,13 @@
 
 (define (intmap-remove t key)
   (let ([et (intmap-eqtype t)])
-    (make-intmap
-     et
-     ($intmap-remove et (intmap-root t) (hash-code et key) key))))
+    (let ([r ($intmap-remove et (intmap-root t) (hash-code et key) key)])
+      (if r
+          (make-intmap et r)
+          (case et
+           [(eq) empty-hasheq]
+           [(equal) empty-hash]
+           [else empty-hasheqv])))))
 
 (define ($intmap-remove et t h key)
   (cond
@@ -219,7 +223,9 @@
          [x4 (fxior x3 (fxsrl x3 4))]
          [x5 (fxior x4 (fxsrl x4 8))]
          [x6 (fxior x5 (fxsrl x5 16))]
-         [x7 (fxior x6 (fxsrl x6 32))])
+         [x7 (if (> (fixnum-width) 32)
+                 (fxior x6 (fxsrl x6 32))
+                 x6)])
     (fxxor x7 (fxsrl x7 1))))
 
 ;; basic utils
@@ -240,7 +246,7 @@
 (define-syntax-rule (key=? et k1 k2)
   (cond [(eq? et 'eq)  (eq? k1 k2)]
         [(eq? et 'eqv) (eqv? k1 k2)]
-        [else          (equal? k1 k2)]))
+        [else          (key-equal? k1 k2)]))
 
 (define-syntax-rule (hash-code et k)
   (cond [(eq? et 'eq)  (eq-hash-code k)]
@@ -249,7 +255,15 @@
 
 (define ($fail default)
   (if (procedure? default)
-      (|#%app| default)
+      (if (procedure-arity-includes? default 0)
+          (|#%app| default)
+          (raise (|#%app|
+                  exn:fail:contract:arity
+                  (string-append "hash-ref: arity mismatch for failure procedure;\n"
+                                 " given procedure does not accept zero arguments\n"
+                                 "  procedure: "
+                                 (error-value->string default))
+                  (current-continuation-marks))))
       default))
 
 ;; iteration

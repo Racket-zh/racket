@@ -423,6 +423,52 @@
             [(eq? v 'do-not-forget-me) #t]
             [else #f]))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Check that 'origin has the right source location,
+;; and that it doesn't have excessive properties
+
+(let ()
+  (define m #`(module m racket/base
+                (require (for-syntax racket/base))
+                (let ()
+                  #,(syntax-property #`(define-values (x y) (values 1 2))
+                                     'on-form
+                                     'dv)
+                  x)))
+  (define e (expand m))
+  (define dv-src
+    (let loop ([m m])
+      (cond
+        [(syntax? m)
+         (or (and (eq? (syntax-e m) 'define-values)
+                  m)
+             (loop (syntax-e m)))]
+        [(pair? m) (or (loop (car m)) (loop (cdr m)))]
+        [else #f])))
+  (define dv-origin
+    (let loop ([e e])
+      (cond
+        [(syntax? e)
+         (define p (syntax-property e 'origin))
+         (or (let loop ([p p])
+               (cond
+                 [(and (identifier? p)
+                       (eq? (syntax-e p) 'define-values))
+                  p]
+                 [(pair? p) (or (loop (car p)) (loop (cdr p)))]
+                 [else #f]))
+             (loop (syntax-e e)))]
+        [(pair? e) (or (loop (car e)) (loop (cdr e)))]
+        [else #f])))
+  (test (list (syntax-line dv-src)
+              (syntax-column dv-src)
+              (syntax-span dv-src))
+        list
+        (syntax-line dv-origin)
+        (syntax-column dv-origin)
+        (syntax-span dv-origin))
+  (test #f syntax-property dv-origin 'on-form))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Check property tracking on `let[rec]-values` binding clauses
 
@@ -911,7 +957,8 @@
           ((current-eval) (datum->syntax #f 'eval))))
 
   (test eval 'compile (eval (compile 'eval)))
-  (test eval 'compile (eval (compile eval)))
+  (when (eq? 'racket (system-type 'vm))
+    (test eval 'compile (eval (compile eval))))
   (test eval 'compile (eval (compile #'eval)))
   (test eval 'compile (eval (compile (datum->syntax #f 'eval))))
 
@@ -2099,6 +2146,57 @@
 (syntax-test #'(evil-via-delta-introducer (m)))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Check that `syntax-make-delta-introducer` transfers
+;; shifts along with scopes [example by Alexis]
+
+(let ([m '(module defines-introducer-to-submodule-binding racket/base
+            (provide foo-val)
+
+            (module foo racket/base
+              (provide foo)
+              (define foo 42))
+
+            (module introducer racket/base
+              (require (for-syntax racket/base
+                                   racket/syntax)
+                       syntax/parse/define)
+
+              (provide begin-foo)
+
+              (begin-for-syntax
+                (define scopeless-stx (datum->syntax #f #f)))
+
+              (define-syntax-parser define-cached-require-introducer
+                [(_ x:id mod-path)
+                 #:with scoped-stx (syntax-local-introduce #'mod-path)
+                 #'(begin
+                     (require scoped-stx)
+                     (begin-for-syntax
+                       (define x (make-syntax-delta-introducer (quote-syntax scoped-stx) scopeless-stx))))])
+
+              (define-cached-require-introducer introduce-foo (submod ".." foo))
+
+              (define-syntax-parser begin-foo
+                [(_ form ...)
+                 (introduce-foo
+                  #'(begin form ...))]))
+
+            (require 'introducer)
+            (define foo-val (begin-foo foo)))])
+  (eval (expand m)))
+
+(test 42 dynamic-require ''defines-introducer-to-submodule-binding 'foo-val)
+
+(module uses-introducer-to-submodule-binding racket/base
+  (provide also-foo-val)
+  
+  (require (submod 'defines-introducer-to-submodule-binding introducer))
+
+  (define also-foo-val (begin-foo foo)))
+
+(test 42 dynamic-require ''uses-introducer-to-submodule-binding 'also-foo-val)
+
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Check that a for-syntax reference can precede a
 ;;  for-syntax definition
 
@@ -2243,8 +2341,9 @@
     (test '#(1 2 3 4 5) syntax->datum (quasisyntax #(a (unsyntax b) c ...)))
     (test '#s(PS 1 2) syntax->datum (quasisyntax #s(PS a (unsyntax b))))
     (test '#s(PS 1 2 3 4 5) syntax->datum (quasisyntax #s(PS a (unsyntax b) c ...)))
-    #|
     (test '#(1 2 3 4 5) syntax->datum (quasisyntax #(a (unsyntax b) (unsyntax-splicing ds))))
+    (test '#(3 4 5) syntax->datum (quasisyntax #((unsyntax-splicing ds))))
+    #|
     (test '#s(PS 1 2 3 4 5) syntax->datum
           (quasisyntax #s(PS a (unsyntax b) (unsyntax-splicing ds))))
     |#))
@@ -2652,7 +2751,7 @@
 (err/rt-test (syntax-property #'+ 1 #'+ #t)
              (lambda (exn)
                (regexp-match
-                #rx"key for a perserved property must be an interned symbol"
+                #rx"key for a preserved property must be an interned symbol"
                 (exn-message exn))))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

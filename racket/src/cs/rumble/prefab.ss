@@ -1,10 +1,8 @@
-;; maps (cons prefab-key total-field-count) to rtd:
-(define prefabs #f)
-
 (define (prefab-struct-key v)
   (let ([v (strip-impersonator v)])
     (and (record? v)
-         (let ([p (getprop (record-type-uid (record-rtd v)) 'prefab-key+count #f)])
+         (let ([p (with-global-lock*
+                   (getprop (record-type-uid (record-rtd v)) 'prefab-key+count #f))])
            (and p (car p))))))
 
 (define/who (prefab-key->struct-type key field-count)
@@ -282,7 +280,7 @@
   (let* ([l (if parent-key+size
                 (prefab-key+size->prefab-key-tail parent-key+size)
                 '())]
-         [l (let ([mutables (immutables->mutables immutables fields-count)])
+         [l (let ([mutables (immutables->mutables immutables fields-count 0)])
               (if (fx= 0 (#%vector-length mutables))
                   l
                   (cons mutables l)))]
@@ -307,14 +305,17 @@
 (define (encode-prefab-key+count-as-symbol prefab-key+count)
   (string->symbol (chez:format "~a" prefab-key+count)))
 
-(define (immutables->mutables immutables init-count)
+(define (immutables->mutables immutables init-count auto-count)
   (vector->immutable-vector
    (list->vector
     (let loop ([i 0])
       (cond
-       [(= i init-count) null]
-       [(chez:member i immutables) (loop (add1 i))]
-       [else (cons i (loop (add1 i)))])))))
+       [(fx= i init-count) (let loop ([i 0])
+                             (cond
+                              [(fx= i auto-count) null]
+                              [else (cons (fx+ i init-count) (loop (fx+ i 1)))]))]
+       [(#%memv i immutables) (loop (fx+ 1 i))]
+       [else (cons i (loop (fx+ i 1)))])))))
 
 (define (mutables->immutables mutables init-count)
   (let loop ([i 0])

@@ -12,14 +12,14 @@
                   [current-directory host:current-directory]
                   [path->string host:path->string]))
 
-(current-directory (host:path->string (host:current-directory)))
+(path->string (current-directory))
 (set-string->number?! string->number)
 
 (define-syntax-rule (test expect rhs)
   (let ([e expect]
         [v rhs])
     (unless (equal? e v)
-      (error 'failed "~s: ~e" 'rhs v))))
+      (error 'failed "~s: ~e not ~e" 'rhs v e))))
 
 (test #f (bytes-utf-8-ref #"\364\220\200\200" 0))
 
@@ -90,6 +90,18 @@
 (struct animal (name weight)
   #:property prop:custom-write (lambda (v o mode)
                                  (fprintf o "<~a>" (animal-name v))))
+
+(test "apple" (format "~a" 'apple))
+(test "apple" (format "~a" "apple"))
+(test "apple" (format "~a" #"apple"))
+(test "#:apple" (format "~a" '#:apple))
+(test "17.5" (format "~a" 17.5))
+
+(test "apple" (format "~s" 'apple))
+(test "\"apple\"" (format "~s" "apple"))
+(test "#\"apple\"" (format "~s" #"apple"))
+(test "#:apple" (format "~s" '#:apple))
+(test "17.5" (format "~s" 17.5))
 
 (test "1\n\rx0!\"hi\"" (format "1~%~  \n  \rx~ ~o~c~s" 0 #\! "hi"))
 
@@ -279,9 +291,9 @@
                      void)))
 (port-count-lines! specialist)
 
-(test '(special #f #f #f #f) (read-byte-or-special specialist))
+(test '(special #f 1 0 1) (read-byte-or-special specialist))
 (test '#&(special src 1 1 2) (read-byte-or-special specialist box 'src))
-(test '(special #f #f #f #f) (peek-byte-or-special specialist))
+(test '(special #f 1 2 3) (peek-byte-or-special specialist))
 (test '#&(special src 1 2 3) (peek-byte-or-special specialist 0 #f box 'src))
 (test 'special (peek-byte-or-special specialist 0 #f 'special 'src))
 (test 'special (peek-char-or-special specialist 0 'special 'src))
@@ -307,7 +319,7 @@
 (let ()
   (define-values (i o) (make-pipe))
   (for ([n 3])
-    (write-bytes (make-bytes 4096 (char->integer #\a)) o)
+    (test 4096 (write-bytes (make-bytes 4096 (char->integer #\a)) o))
     (for ([j (in-range 4096)])
       (read-byte i))
     (unless (zero? (pipe-content-length i))
@@ -334,7 +346,6 @@
                       (car content))
         (error))
       (loop (add1 x) (cdr content) (list* bstr bstr accum))])))
-
 
 (let ()
   (define path (build-path "compiled" "demo-out"))
@@ -389,6 +400,7 @@
   (test (void) (file-position out 10))
   (test #"hola!!\0\0\0\0" (get-output-bytes out)))
 
+(log-error "start")
 (let ()
   (define-values (i o) (make-pipe))
   (port-count-lines! i)
@@ -416,6 +428,7 @@
   (write-bytes #"!" o)
   (test '(3 1 8) (next-location o))
 
+(log-error "here")
   (test #"x\r" (read-bytes 2 i))
   (test '(3 0 7) (next-location i))
   (test #"\n!" (read-bytes 2 i))
@@ -603,13 +616,32 @@
   (print-test b "#0='#&#0#"))
 
 (let ([b (vector #f #f)])
+  (struct p (x y) #:transparent)
+  (struct c (x y) #:prefab)
   (vector-set! b 0 b)
   (vector-set! b 1 b)
   (print-test b "#0='#(#0# #0#)")
   (print-test '(1) "'(1)")
   (print-test (cons 1 (cons 2 3)) "'(1 2 . 3)")
-  (print-test (cons 1 (cons 2 (mcons 3 4))) "(cons 1 (cons 2 (mcons 3 4)))")
-  (print-test (cons 1 (cons (mcons 3 4) null)) "(list 1 (mcons 3 4))"))
+  (print-test (cons 1 (mcons 3 4)) "(cons 1 (mcons 3 4))")
+  (print-test (cons 1 (cons 2 (mcons 3 4))) "(list* 1 2 (mcons 3 4))")
+  (print-test (cons 1 (cons (mcons 3 4) null)) "(list 1 (mcons 3 4))")
+  (print-test '('a) "'('a)")
+  (print-test '(4 . 'a) "'(4 . 'a)")
+  (print-test '(4 unquote a) "'(4 . ,a)")
+  (print-test '(4 unquote @a) "'(4 . , @a)")
+  (print-test '#(4 unquote a) "'#(4 unquote a)")
+  (print-test '((quote a b)) "'((quote a b))")
+  (print-test (p 1 2) "(p 1 2)")
+  (print-test (box (p 1 2)) "(box (p 1 2))")
+  (print-test (hasheq 1 (p 1 2) 2 'other) "(hasheq 1 (p 1 2) 2 'other)")
+  (print-test (arity-at-least 1) "(arity-at-least 1)")
+  (let ([v (make-placeholder #f)])
+    (placeholder-set! v (list (p 1 2) v))
+    (print-test (make-reader-graph v) "#0=(list (p 1 2) #0#)"))
+  (let ([v (make-placeholder #f)])
+    (placeholder-set! v (c (p 1 2) v))
+    (print-test (make-reader-graph v) "#0=(c (p 1 2) #0#)")))
 
 (let ([b (make-hash)])
   (hash-set! b 'self b)
@@ -663,6 +695,9 @@
 (define-values (ti to) (tcp-connect "localhost" 59078))
 (test l (sync l))
 (define-values (tai tao) (tcp-accept l))
+
+(test #f (file-stream-port? i))
+(test #f (file-stream-port? o))
 
 (test 6 (write-string "hello\n" to))
 (flush-output to)
@@ -730,6 +765,7 @@
 
 ;; ----------------------------------------
 
+'read-string
 (time
  (let loop ([j 10])
    (unless (zero? j)
@@ -744,6 +780,7 @@
        (loop (sub1 j))))))
 
 (define read-byte-buffer-mode 'block)
+(define count-lines? #t)
 
 'read-byte/host
 (time
@@ -752,7 +789,7 @@
      (let ()
        (define p (host:open-input-file "compiled/io.rktl"))
        (host:file-stream-buffer-mode p read-byte-buffer-mode)
-       (host:port-count-lines! p)
+       (when count-lines? (host:port-count-lines! p))
        (let loop ()
          (unless (eof-object? (host:read-byte p))
            (loop)))
@@ -766,7 +803,7 @@
      (let ()
        (define p (open-input-file "compiled/io.rktl"))
        (file-stream-buffer-mode p read-byte-buffer-mode)
-       (port-count-lines! p)
+       (when count-lines? (port-count-lines! p))
        (let loop ()
          (unless (eof-object? (read-byte p))
            (loop)))

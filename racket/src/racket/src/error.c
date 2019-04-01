@@ -1,28 +1,3 @@
-/*
-  Racket
-  Copyright (c) 2004-2018 PLT Design Inc.
-  Copyright (c) 1995-2001 Matthew Flatt
-
-    This library is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Library General Public
-    License as published by the Free Software Foundation; either
-    version 2 of the License, or (at your option) any later version.
-
-    This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Library General Public License for more details.
-
-    You should have received a copy of the GNU Library General Public
-    License along with this library; if not, write to the Free
-    Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
-    Boston, MA 02110-1301 USA.
-
-  libscheme
-  Copyright (c) 1994 Brent Benson
-  All rights reserved.
-*/
-
 #include "schpriv.h"
 #include "schrktio.h"
 #include <ctype.h>
@@ -840,7 +815,7 @@ void scheme_init_error(Scheme_Startup_Env *env)
   ADD_NONCM_PRIM("make-logger",       make_logger,     0, -1, env);
   ADD_NONCM_PRIM("make-log-receiver", make_log_reader, 2, -1, env);
 
-  ADD_PRIM_W_ARITY("log-message",    log_message,   4, 6, env);
+  ADD_PRIM_W_ARITY("log-message",    log_message,   3, 6, env);
   ADD_FOLDING_PRIM("logger?",        logger_p,      1, 1, 1, env);
   ADD_FOLDING_PRIM("logger-name",    logger_name,   1, 1, 1, env);
   ADD_FOLDING_PRIM("log-receiver?",  log_reader_p,  1, 1, 1, env);
@@ -1134,6 +1109,11 @@ void scheme_warning(char *msg, ...)
 
   scheme_write_byte_string(buffer, len,
 			   scheme_get_param(scheme_current_config(), MZCONFIG_ERROR_PORT));
+}
+
+void scheme_ensure_console_ready()
+{
+  rktio_create_console();
 }
 
 void scheme_log(Scheme_Logger *logger, int level, int flags,
@@ -2578,23 +2558,28 @@ void scheme_unbound_global(Scheme_Bucket *b)
     Scheme_Object *src_name;
     const char *errmsg;
 
-    if (SCHEME_TRUEP(scheme_get_param(scheme_current_config(), MZCONFIG_ERROR_PRINT_SRCLOC)))
-      errmsg = ("%S: undefined;\n"
-                " cannot reference an identifier before its definition\n"
-                "  in module: %D\n"
-                "  internal name: %S");
-    else
-      errmsg = ("%S: undefined;\n"
-                " cannot reference an identifier before its definition%_%_");
-
     src_name = scheme_hash_tree_get(home->source_names, name);
     if (!src_name)
       src_name = name;
 
+    if (SCHEME_TRUEP(scheme_get_param(scheme_current_config(), MZCONFIG_ERROR_PRINT_SRCLOC))) {
+      if (!SAME_OBJ(name, src_name))
+        errmsg = ("%S: undefined;\n"
+                  " cannot reference an identifier before its definition\n"
+                  "  in module: %D\n"
+                  "  internal name: %S");
+      else
+        errmsg = ("%S: undefined;\n"
+                  " cannot reference an identifier before its definition\n"
+                  "  in module: %D");
+    } else
+      errmsg = ("%S: undefined;\n"
+                " cannot reference an identifier before its definition%_%_");
+
     scheme_raise_exn(MZEXN_FAIL_CONTRACT_VARIABLE,
-		     src_name,
-		     errmsg,
 		     name,
+		     errmsg,
+		     src_name,
 		     home->name,
                      name);
   } else {
@@ -4077,6 +4062,7 @@ log_message(int argc, Scheme_Object *argv[])
   Scheme_Logger *logger;
   Scheme_Object *bytes;
   Scheme_Object *name;
+  Scheme_Object *data;
   int level, pos, pfx;
 
   if (!SAME_TYPE(SCHEME_TYPE(argv[0]), scheme_logger_type))
@@ -4101,9 +4087,14 @@ log_message(int argc, Scheme_Object *argv[])
     pfx = SCHEME_TRUEP(argv[pos+1]);
   else
     pfx = 1;
+
+  if (pos >= argc)
+    data = scheme_false;
+  else
+    data = argv[pos];
   
   scheme_log_name_pfx_message(logger, level, name,
-                              SCHEME_BYTE_STR_VAL(bytes), SCHEME_BYTE_STRLEN_VAL(bytes), argv[pos],
+                              SCHEME_BYTE_STR_VAL(bytes), SCHEME_BYTE_STRLEN_VAL(bytes), data,
                               pfx);
 
   return scheme_void;

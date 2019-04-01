@@ -88,10 +88,12 @@ In more detail, patterns match as follows:
 @itemize[
 
  @item{@racket[_id] (excluding the reserved names @racketidfont{_},
-       @racketidfont{...}, @racketidfont{.._},
+       @racketidfont{...}, @racketidfont{___},
        @racketidfont{..}@racket[_k], and
        @racketidfont{..}@racket[_k] for non-negative integers
-       @racket[_k]) or @racket[(var _id)] --- matches anything, and binds @racket[_id] to the
+       @racket[_k]) @margin-note{Unlike in @racket[cond] and @racket[case],
+       @racket[else] is not a keyword in @racket[match].} or @racket[(var _id)]
+       --- matches anything, and binds @racket[_id] to the
        matching values. If an @racket[_id] is used multiple times
        within a pattern, the corresponding matches must be the same
        according to @racket[(match-equality-test)], except that
@@ -107,6 +109,11 @@ In more detail, patterns match as follows:
        (match '(1 (x y z) 1)
          [(list a b a) (list a b)]
          [(list a b c) (list c b a)])
+       (match #f
+         [else
+          (cond
+            [#f 'not-evaluated]
+            [else 'also-not-evaluated])])
        ]}
 
  @item{@racketidfont{_} --- matches anything, without binding any
@@ -319,7 +326,7 @@ In more detail, patterns match as follows:
        ]}
 
  @item{@racket[(#,(racketidfont "pregexp") _rx-expr)] or
-       @racket[(#,(racketidfont "regexp") _rx-expr _pat)] --- like the
+       @racket[(#,(racketidfont "pregexp") _rx-expr _pat)] --- like the
        @racketidfont{regexp} patterns, but if @racket[_rx-expr]
        produces a string, it is converted to a pattern using
        @racket[pregexp] instead of @racket[regexp].}
@@ -360,15 +367,22 @@ In more detail, patterns match as follows:
        ]}
 
  @item{@racket[(#,(racketidfont "app") _expr _pats ...)] --- applies
-       @racket[_expr] to the value to be matched; the result of the
-       application is matched against @racket[_pats].
+       @racket[_expr] to the value to be matched; each result of the
+       application is matched against one of the @racket[_pats],
+       respectively.
 
        @examples[
        #:eval match-eval
        (match '(1 2)
         [(app length 2) 'yes])
+       (match "3.14"
+        [(app string->number (? number? pi))
+         `(I got ,pi)])
        (match '(1 2)
         [(app (lambda (v) (split-at v 1)) '(1) '(2)) 'yes])
+       (match '(1 2 3)
+        [(app (λ (ls) (apply values ls)) x y (? odd? z))
+         (list 'yes x y z)])
        ]}
 
  @item{@racket[(#,(racketidfont "?") _expr _pat ...)] --- applies

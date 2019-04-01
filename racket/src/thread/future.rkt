@@ -10,8 +10,8 @@
          "thread.rkt"
          "lock.rkt")
 
-(provide futures-enabled?
-         processor-count
+(provide init-future-place!
+         futures-enabled?
          current-future
          future
          future?
@@ -28,12 +28,17 @@
          reset-future-logs-for-tracing!
          mark-future-trace-end!)
 
+(define place-main-thread-id (make-pthread-parameter 0))
+
+(define (init-future-place!)
+  (place-main-thread-id (get-pthread-id)))
+
 ;; not sure of order here...
 (define (get-caller)
   (cond
     [(current-future)
      (current-future)]
-    [(not (= 0 (get-pthread-id)))
+    [(not (= (place-main-thread-id) (get-pthread-id)))
      (get-pthread-id)]
     [else
      (current-thread)]))
@@ -50,9 +55,6 @@
       (if (box-cas! ID id (+ 1 id))
           id
           (get-next-id)))))
-
-(define (processor-count)
-  1)
 
 (define futures-enabled? threaded?)
 
@@ -88,14 +90,11 @@
 
 (define (thunk-wrapper f thunk)
   (lambda ()
-    (call-with-continuation-prompt
-     (lambda ()
-       (let ([result (thunk)])
-         (with-lock ((future*-lock f) (current-future))
-           (set-future*-result! f result)
-           (set-future*-done?! f #t)
-           (future:condition-broadcast (future*-cond f)))))
-     (future*-prompt f))))
+    (let ([result (thunk)])
+      (with-lock ((future*-lock f) (current-future))
+        (set-future*-result! f result)
+        (set-future*-done?! f #t)
+        (future:condition-broadcast (future*-cond f))))))
 
 (define/who (future thunk)
   (check who (procedure-arity-includes/c 0) thunk)
@@ -104,7 +103,7 @@
      (would-be-future thunk)]
     [else
      (let ([f (create-future #f)])
-       (set-future*-engine! f (make-engine (thunk-wrapper f thunk) #f #t))
+       (set-future*-engine! f (make-engine (thunk-wrapper f thunk) (future*-prompt f) #f #t))
        (schedule-future f)
        f)]))
 

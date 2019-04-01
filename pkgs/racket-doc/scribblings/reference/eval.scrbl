@@ -223,19 +223,28 @@ An @tech{extension-load handler} takes the same arguments as a
 (Mac OS).  The file is loaded using internal, OS-specific
 primitives. See @other-manual['(lib
 "scribblings/inside/inside.scrbl")] for more information on
-@tech{dynamic extensions}.}
+@tech{dynamic extensions}.
+
+Extensions are supported only when @racket[(system-type 'vm)] returns
+@racket['racket].}
 
 
 @defproc[(load-extension [file path-string?]) any]{
 
 Sets @racket[current-load-relative-directory] like @racket[load], and
-calls the @tech{extension-load handler} in tail position.}
+calls the @tech{extension-load handler} in tail position.
+
+Extensions are supported only when @racket[(system-type 'vm)] returns
+@racket['racket].}
 
 
 @defproc[(load-relative-extension [file path-string?]) any]{
 
 Like @racket[load-extension], but resolves @racket[file] using
-@racket[current-load-relative-directory] like @racket[load-relative].}
+@racket[current-load-relative-directory] like @racket[load-relative].
+
+Extensions are supported only when @racket[(system-type 'vm)] returns
+@racket['racket].}
 
 
 @defparam[current-load/use-compiled proc (path? (or/c #f
@@ -261,8 +270,8 @@ The protocol for a @tech{compiled-load handler} is the same as for the
    the default @tech{compiled-load handler} checks for a @filepath{.ss} file.}
 
  @item{The default @tech{compiled-load handler} checks for the opportunity
-   to load from @filepath{.zo} (bytecode) files and
-   @filepath{.so} (native Unix), @filepath{.dll} (native Windows),
+   to load from @filepath{.zo} (bytecode) files and, when @racket[(system-type 'vm)]
+   returns @racket['racket], for @filepath{.so} (native Unix), @filepath{.dll} (native Windows),
    or @filepath{.dylib} (native Mac OS) files.}
 
  @item{When the default @tech{compiled-load handler} needs to load from
@@ -290,7 +299,8 @@ order, and the subdirectories are checked in order within each root. A
 @filepath{.zo} version of the file (whose name is formed by passing
 @racket[_file] and @racket[#".zo"] to @racket[path-add-extension]) is
 loaded if it exists directly in one of the indicated subdirectories,
-or a @filepath{.so}/@filepath{.dll}/@filepath{.dylib} version of the
+or when @racket[(system-type 'vm)] returns
+@racket['racket], then a @filepath{.so}/@filepath{.dll}/@filepath{.dylib} version of the
 file is loaded if it exists within a @filepath{native} subdirectory of
 a @racket[use-compiled-file-paths] directory, in an even deeper
 subdirectory as named by @racket[system-library-subpath]. A compiled
@@ -299,7 +309,8 @@ file is loaded only if it checks out according to
 of @racket['modify-seconds], a compiled file is used only if its
 modification date is not older than the
 date for @racket[_file]. If both @filepath{.zo} and
-@filepath{.so}/@filepath{.dll}/@filepath{.dylib} files are available,
+@filepath{.so}/@filepath{.dll}/@filepath{.dylib} files are available
+when @racket[(system-type 'vm)] returns @racket['racket],
 the @filepath{.so}/@filepath{.dll}/@filepath{.dylib} file is used.  If
 @racket[_file] ends with @filepath{.rkt}, no such file exists, the
 handler's second argument is a symbol, and a @filepath{.ss} file
@@ -528,12 +539,12 @@ handler} in tail position with @racket[stx].}
 
 @defproc[(compiled-expression-recompile [ce compiled-expression?]) compiled-expression?]{
 
-Recompiles @racket[ce], effectively re-running optimization passes to
-produce an equivalent compiled form with potentially different
-performance characteristics.
-
-If @racket[ce] includes module forms, then only phase-0 code in the
-immediate module (not in submodules) is recompiled.
+Recompiles @racket[ce]. If @racket[ce] was compiled as
+machine-independent and @racket[current-compile-target-machine] is
+not set to @racket[#f], then recompiling effectively converts to the current
+machine format. Otherwise, recompiling effectively re-runs
+optimization passes to produce an equivalent compiled form with
+potentially different performance characteristics.
 
 @history[#:added "6.3"]}
 
@@ -581,6 +592,44 @@ information to be lost from stack traces (as reported by
 @racket[continuation-mark-set->context]). The default is @racket[#f],
 which allows such optimizations.}
 
+@defparam[current-compile-target-machine target (or/c #f (and/c symbol? compile-target-machine?))]{
+
+A @tech{parameter} that determines the platform and/or virtual machine
+target for a newly compiled expression.
+
+If the target is @racket[#f], the the compiled expression writes in a
+machine-independent format (usually in @filepath{.zo} files).
+Machine-independent compiled code works for any platform and any
+Racket virtual machine. When the machine-independent compiled
+expression is read back in, it is subject to further compilation for
+the current platform and virtual machine, which can be considerably
+slower than reading a format that is fully compiled for a platform and
+virtual machine.
+
+The default is something other than @racket[#f], unless
+machine-independent mode is enabled through the
+@Flag{M}/@DFlag{compile-any} command-line flag to stand-alone Racket
+(or GRacket) or through the @as-index{@envvar{PLT_COMPILE_ANY}}
+environment variable (set to any value).
+
+@history[#:added "7.1.0.6"]}
+
+
+@defproc[(compile-target-machine? [sym symbol?]) boolean?]{
+
+Reports whether @racket[sym] is a supported compilation target for the
+currently running Racket.
+
+When @racket[(system-type 'vm)] reports @racket['racket], then the
+only target symbol is @racket['racket]. When @racket[(system-type
+'vm)] reports @racket['chez-scheme], then a symbol corresponding to
+the current platform is a target, and other targets may also be
+supported. The @racket['target-machine] mode of @racket[system-type]
+reports the running Racket's native target machine.
+
+@history[#:added "7.1.0.6"]}
+
+
 @defboolparam[eval-jit-enabled on?]{
 
 @guidealso["JIT"]
@@ -588,11 +637,12 @@ which allows such optimizations.}
 A @tech{parameter} that determines whether the native-code just-in-time
 compiler (@deftech{JIT}) is enabled for code (compiled or not) that is passed to
 the default evaluation handler. A true parameter value is effective
-only on platforms for which the JIT is supported, and changing the value
-from its initial setting affects only forms that are outside of @racket[module].
+only on platforms for which the JIT is supported and for Racket virtual machines
+that rely on a JIT.
 
 The default is @racket[#t], unless the JIT is not supported by the
-current platform, unless it is disabled through the
+current platform but is supported on the same virtual machine for other
+platforms, unless it is disabled through the
 @Flag{j}/@DFlag{no-jit} command-line flag to stand-alone Racket (or
 GRacket), and unless it is disabled through the
 @as-index{@envvar{PLTNOMZJIT}} environment variable (set to any

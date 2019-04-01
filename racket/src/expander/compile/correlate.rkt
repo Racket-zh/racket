@@ -13,8 +13,10 @@
          correlate~
          correlate/app
          ->correlated
+         correlate-source-name
 
-         compile-keep-source-locations!)
+         compile-keep-source-locations!
+         keep-source-locations?)
 
 (define keep-source-locations? #f)
 
@@ -36,6 +38,13 @@
 
 (define (->correlated s)
   (datum->correlated s #f))
+
+(define (correlate-source-name sym e-sym)
+  (if (eq? sym e-sym)
+      sym
+      (correlated-property (datum->correlated sym #f)
+                           'source-name
+                           e-sym)))
 
 
 (define (compile-keep-source-locations! on?)

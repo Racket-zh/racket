@@ -25,7 +25,8 @@
          "reference-record.rkt"
          "prepare.rkt"
          "log.rkt"
-         "parsed.rkt")
+         "parsed.rkt"
+         "../compile/correlate.rkt")
 
 ;; ----------------------------------------
 
@@ -39,8 +40,9 @@
   ;; Bind each argument and generate a corresponding key for the
   ;; expand-time environment:
   (define counter (root-expand-context-counter ctx))
+  (define local-sym (and (expand-context-normalize-locals? ctx) 'arg))
   (define keys (for/list ([id (in-list ids)])
-                 (add-local-binding! id phase counter #:in s)))
+                 (add-local-binding! id phase counter #:in s #:local-sym local-sym)))
   (define body-env (for/fold ([env (expand-context-env ctx)]) ([key (in-list keys)]
                                                                [id (in-list ids)])
                      (env-extend env key (local-variable id))))
@@ -198,12 +200,17 @@
     ;; Bind each left-hand identifier and generate a corresponding key
     ;; fo the expand-time environment:
     (define counter (root-expand-context-counter ctx))
+    (define local-sym (and (expand-context-normalize-locals? ctx) 'loc))
     (define trans-keyss (for/list ([ids (in-list trans-idss)])
                           (for/list ([id (in-list ids)])
-                            (add-local-binding! id phase counter #:frame-id frame-id #:in s))))
+                            (add-local-binding! id phase counter
+                                                #:frame-id frame-id #:in s
+                                                 #:local-sym local-sym))))
     (define val-keyss (for/list ([ids (in-list val-idss)])
                         (for/list ([id (in-list ids)])
-                          (add-local-binding! id phase counter #:frame-id frame-id #:in s))))
+                          (add-local-binding! id phase counter
+                                              #:frame-id frame-id #:in s
+                                              #:local-sym local-sym))))
     ;; Add new scope to body:
     (define bodys (for/list ([body (in-list (if syntaxes? (stx-m 'body) (val-m 'body)))])
                     (define new-body (add-scope body sc))
@@ -408,7 +415,7 @@
           (list (core-id 'quote phase)
                 null)))]
     [else
-     (define keep-for-parsed? (eq? (system-type 'vm) 'chez-scheme))
+     (define keep-for-parsed? keep-source-locations?)
      (define rebuild-s (keep-as-needed ctx s #:keep-for-parsed? keep-for-parsed?))
      (define prefixless (cdr (syntax-e disarmed-s)))
      (define rebuild-prefixless (and (syntax? prefixless)
@@ -666,8 +673,8 @@
                 (or (register-eventual-variable!? id ctx)
                     (expand-context-allow-unbound? ctx))))
        (when (and (module-binding? binding)
-                  (not (eq? (module-binding-module binding)
-                            (root-expand-context-self-mpi ctx))))
+                  (not (inside-module-context? (module-binding-module binding)
+                                               (root-expand-context-self-mpi ctx))))
          (raise-syntax-error #f "cannot mutate module-required identifier" s id))
        (log-expand ctx 'next)
        (register-variable-referenced-if-local! binding)
@@ -678,9 +685,7 @@
            (rebuild
             rebuild-s
             (list (m 'set!)
-                  (substitute-variable id t #:no-stops? (free-id-set-empty-or-just-module*?
-                                                         (expand-context-stops ctx)
-                                                         (expand-context-phase ctx)))
+                  (substitute-variable id t #:no-stops? (free-id-set-empty-or-just-module*? (expand-context-stops ctx)))
                   exp-rhs)))]
       [(not binding)
        (raise-unbound-syntax-error #f "unbound identifier" s id null

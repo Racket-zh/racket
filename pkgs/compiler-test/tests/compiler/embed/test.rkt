@@ -266,7 +266,10 @@
     (one-mz-test "embed-me18.rkt" "This is 18.\n" #f)
     (one-mz-test "embed-me19.rkt" "This is 19.\n" #f)
     (one-mz-test "embed-me21.rkt" "This is 21.\n" #f)
-    (one-mz-test "embed-me31.rkt" "This is 31.\n" #f))
+    (one-mz-test "embed-me31.rkt" "This is 31.\n" #f)
+    (one-mz-test "embed-me34.rkt" "This is 34 in a second place.\n" #f)
+    (one-mz-test "embed-me35.rkt" "'ok-35\n" #f)
+    (one-mz-test "embed-me36.rkt" "'ok-36\n" #f))
 
   ;; Try unicode expr and cmdline:
   (prepare dest "unicode")
@@ -321,13 +324,17 @@
 
 ;; Try the raco interface:
 (require setup/dirs
-	 mzlib/file)
-(define mzc (build-path (find-console-bin-dir) (if (eq? 'windows (system-type))
-                                                   "mzc.exe"
-                                                   "mzc")))
-(define raco (build-path (find-console-bin-dir) (if (eq? 'windows (system-type))
-                                                    "raco.exe"
-                                                    "raco")))
+	 mzlib/file
+         compiler/find-exe)
+(define (add-suffixes s)
+  (define me (path-replace-suffix (find-exe) #""))
+  (define ending (regexp-match #rx#"(?i:racket)([cs3mg]*)$" me))
+  (define s2 (string-append s (bytes->string/utf-8 (cadr ending))))
+  (if (eq? 'windows (system-type))
+      (string-append s2 ".exe")
+      s2))
+(define mzc (build-path (find-console-bin-dir) (add-suffixes "mzc")))
+(define raco (build-path (find-console-bin-dir) (add-suffixes "raco")))
 
 (define (system+ . args)
   (printf "> ~a\n" (car (reverse args)))
@@ -744,8 +751,9 @@
 
 (try-basic)
 (try-mzc)
-(unless (eq? 'windows (system-type))
-  (try-extension))
+(when (eq? 'racket (system-type 'vm))
+  (unless (eq? 'windows (system-type))
+    (try-extension)))
 (try-gracket)
 (try-reader)
 (try-lang)

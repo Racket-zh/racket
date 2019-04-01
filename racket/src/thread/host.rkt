@@ -27,7 +27,9 @@
         make-pthread-parameter
         unsafe-make-place-local
         unsafe-place-local-ref
-        unsafe-place-local-set!)
+        unsafe-place-local-set!
+        unsafe-root-continuation-prompt-tag
+        break-enabled-key)
 
 (bounce #%engine
         make-engine
@@ -37,8 +39,6 @@
         current-engine-state
         current-process-milliseconds
         set-ctl-c-handler!
-        root-continuation-prompt-tag
-        break-enabled-key
         set-break-enabled-transition-hook!
         [continuation-marks host:continuation-marks]
 
@@ -48,6 +48,10 @@
         [will-executor? host:will-executor?]
         [will-register host:will-register]
         [will-try-execute host:will-try-execute]
+
+        set-reachable-size-increments-callback!
+        set-custodian-memory-use-proc!
+        set-immediate-allocation-check-proc!
 
         ;; Just `exn:break`, etc., but the host may need
         ;; to distinguish breaks raised by the thread
@@ -75,6 +79,9 @@
         [fork-place host:fork-place]
         [start-place host:start-place]
         [exit host:exit]
+        [current-place-roots host:current-place-roots]
+        [get-initial-place host:get-initial-place]
+        [call-with-current-pthread-continuation host:call-with-current-place-continuation]
 
         fork-pthread
         pthread?

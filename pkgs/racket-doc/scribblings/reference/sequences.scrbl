@@ -1073,8 +1073,8 @@ stream, but plain lists can be used as streams, and functions such as
   @racket[empty-stream].
 }
 
-@defform[(stream* expr ...)]{
-  A shorthand for nested @racket[stream-cons]es, but the final @racket[expr]
+@defform[(stream* expr ... rest-expr)]{
+  A shorthand for nested @racket[stream-cons]es, but the @racket[rest-expr]
   must be a stream, and it is used as the rest of the stream instead of
   @racket[empty-stream]. Similar to @racket[list*] but for streams.
 
@@ -1124,7 +1124,7 @@ stream, but plain lists can be used as streams, and functions such as
 
 @defproc[(stream-take [s stream?] [i exact-nonnegative-integer?])
          stream?]{
-  Returns a list of the first @racket[i] elements of @racket[s].
+  Returns a stream of the first @racket[i] elements of @racket[s].
 }
 
 @defproc[(stream-append [s stream?] ...)
@@ -1266,10 +1266,9 @@ If the @racket[c] argument is a flat contract or a chaperone contract, then the
 result will be a chaperone contract. Otherwise, the result will be an
 impersonator contract.
 
-When an @racket[stream/c] contract is applied to an asynchronous channel,
-the result is not @racket[eq?] to the input. The result will be either a
-@tech{chaperone} or @tech{impersonator} of the input depending on the type of
-contract.
+When an @racket[stream/c] contract is applied to a stream, the result is not
+@racket[eq?] to the input. The result will be either a @tech{chaperone} or
+@tech{impersonator} of the input depending on the type of contract.
 
 Contracts on streams are evaluated lazily by necessity (since streams may be
 infinite). Contract violations will not be raised until the value in violation

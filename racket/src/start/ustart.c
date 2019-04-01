@@ -12,6 +12,12 @@
 #include <errno.h>
 #include <stdio.h>
 
+#if defined(__GNUC__)
+# define PRESERVE_IN_EXECUTABLE __attribute__((used))
+#else
+# define PRESERVE_IN_EXECUTABLE /* empty */
+#endif
+
 /* The config string after : is replaced with ! followed by a sequence
    of little-endian 4-byte ints:
     start - offset into the binary
@@ -33,14 +39,17 @@
    adjusted. Using a seciton offset allows linking tools (such as
    `strip') to move the data in the executable.
 */
+PRESERVE_IN_EXECUTABLE
 char *config = "cOnFiG:[***************************";
 
+PRESERVE_IN_EXECUTABLE
 char *binary_type_hack = "bINARy tYPe:ezic";
 
 /* This path list is used instead of the one in the Racket/GRacket
    binary. That way, the same Racket/GRacket binary can be shared
    among embedding exectuables that have different collection
    paths. */
+PRESERVE_IN_EXECUTABLE
 char *_coldir = "coLLECTs dIRECTORy:" /* <- this tag stays, so we can find it again */
                 "../collects"
                 "\0\0" /* <- 1st nul terminates path, 2nd terminates path list */
@@ -63,6 +72,7 @@ char *_coldir = "coLLECTs dIRECTORy:" /* <- this tag stays, so we can find it ag
 		"****************************************************************";
 static int _coldir_offset = 19; /* Skip permanent tag */
 
+PRESERVE_IN_EXECUTABLE
 char * volatile _configdir = "coNFIg dIRECTORy:" /* <- this tag stays, so we can find it again */
                        "../etc"
                        "\0"
@@ -362,6 +372,7 @@ int main(int argc, char **argv)
     long buflen = 4096;
     buf = (char *)malloc(buflen);
     me = path_append(getcwd(buf, buflen), me);
+    free(buf);
   } else {
     /* We have to find the executable by searching PATH: */
     char *path = copy_string(getenv("PATH")), *p, *m;
@@ -412,7 +423,6 @@ int main(int argc, char **argv)
       if (errno == ENAMETOOLONG) {
 	/* Increase buffer size and try again: */
 	bufsize *= 2;
-	buf = (char *)malloc(bufsize + 1);
       } else
 	break;
     } else {
@@ -420,7 +430,6 @@ int main(int argc, char **argv)
       buf[len] = 0;
       buf = absolutize(buf, me);
       me = buf;
-      buf = (char *)malloc(bufsize + 1);
     }
   }
 
@@ -480,7 +489,7 @@ int main(int argc, char **argv)
       dll_path = "";
     }
     dll_path = string_append(dll_path, ":");
-    dll_path = string_append(lib_path, dll_path);
+    dll_path = string_append(dll_path, lib_path);
     dll_path = string_append(LD_LIB_PATH "=", dll_path);
     putenv(dll_path);
   }

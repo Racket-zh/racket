@@ -1,10 +1,13 @@
 #lang racket/base
 (require "../common/check.rkt"
+         "../common/class.rkt"
          "../host/thread.rkt"
+         "port.rkt"
          "input-port.rkt"
          "custom-port.rkt"
          "pipe.rkt"
-         "peek-via-read-port.rkt")
+         "peek-via-read-port.rkt"
+         "count.rkt")
 
 (provide make-input-port)
 
@@ -54,9 +57,9 @@
   
   (define input-pipe #f) ; `user-read-in` can redirect input
   
-  (define (protect-in dest-bstr dest-start dest-end copy? read-in)
-    ;; We don't trust `read-in` to refrain from modifying its
-    ;; byte-string argument after it returns, and the `read-in`
+  (define (protect-in dest-bstr dest-start dest-end copy? user-read-in)
+    ;; We don't trust `user-read-in` to refrain from modifying its
+    ;; byte-string argument after it returns, and the `user-read-in`
     ;; interface doesn't deal with start and end positions, so copy`
     ;; dest-bstr` if needed
     (define len (- dest-end dest-start))
@@ -66,7 +69,7 @@
               (not (= len dest-end)))
           (make-bytes len)
           dest-bstr))
-    (define n (read-in user-bstr))
+    (define n (user-read-in user-bstr))
     (cond
       [(eq? user-bstr dest-bstr)
        n]
@@ -153,15 +156,15 @@
        four-args]))
 
   ;; in atomic mode
-  (define (read-in dest-bstr dest-start dest-end copy?)
+  (define (read-in self dest-bstr dest-start dest-end copy?)
     (cond
       [input-pipe
        (cond
          [(zero? (pipe-content-length input-pipe))
           (set! input-pipe #f)
-          (read-in dest-bstr dest-start dest-end copy?)]
+          (read-in self dest-bstr dest-start dest-end copy?)]
          [else
-          ((core-input-port-read-in input-pipe) dest-bstr dest-start dest-end copy?)])]
+          (send core-input-port input-pipe read-in dest-bstr dest-start dest-end copy?)])]
       [else
        (define r
          (parameterize-break #f
@@ -170,7 +173,7 @@
        (check-read-result '|user port read| r dest-start dest-end)
        (cond
          [(pipe-input-port? r)
-          (read-in dest-bstr dest-start dest-end copy?)]
+          (read-in self dest-bstr dest-start dest-end copy?)]
          [(evt? r)
           (wrap-check-read-evt-result '|user port read| r dest-start dest-end #f #f)]
          [(procedure? r)
@@ -179,15 +182,15 @@
 
   ;; in atomic mode
   ;; Used only if `user-peek-in` is a function:
-  (define (peek-in dest-bstr dest-start dest-end skip-k progress-evt copy?)
+  (define (peek-in self dest-bstr dest-start dest-end skip-k progress-evt copy?)
     (cond
       [input-pipe
        (cond
          [((pipe-content-length input-pipe) . <= . skip-k)
           (set! input-pipe #f)
-          (peek-in dest-bstr dest-start dest-end skip-k progress-evt copy?)]
+          (peek-in self dest-bstr dest-start dest-end skip-k progress-evt copy?)]
          [else
-          ((core-input-port-peek-in input-pipe) dest-bstr dest-start dest-end skip-k progress-evt copy?)])]
+          (send core-input-port input-pipe peek-in dest-bstr dest-start dest-end skip-k progress-evt copy?)])]
       [else
        (define r
          (parameterize-break #f
@@ -197,7 +200,7 @@
        (check-read-result '|user port peek| r dest-start dest-end #:peek? #t #:ok-false? progress-evt)
        (cond
          [(pipe-input-port? r)
-          (peek-in dest-bstr dest-start dest-end skip-k progress-evt copy?)]
+          (peek-in self dest-bstr dest-start dest-end skip-k progress-evt copy?)]
          [(evt? r)
           (wrap-check-read-evt-result '|user port peek| r dest-start dest-end #t progress-evt)]
          [(procedure? r)
@@ -206,33 +209,33 @@
 
   ;; in atomic mode
   ;; Used only if `user-peek-in` is a function:
-  (define (byte-ready work-done!)
+  (define (byte-ready self work-done!)
     (cond
       [(and input-pipe
             (positive? (pipe-content-length input-pipe)))
        #t]
       [else
        (define bstr (make-bytes 1))
-       (define v (peek-in bstr 0 1 0 #f #f))
+       (define v (peek-in self bstr 0 1 0 #f #f))
        (work-done!)
        (cond
          [(evt? v) v]
          [else (not (eqv? v 0))])]))
 
   ;; in atomic mode
-  (define (close)
+  (define (close self)
     (end-atomic)
     (user-close)
     (start-atomic))
 
-  (define (get-progress-evt)
+  (define (get-progress-evt self)
     (define r (user-get-progress-evt))
     (unless (evt? r)
       (raise-result-error '|user port progress-evt| "evt?" r))
     r)
 
   ;; in atomic mode
-  (define (commit amt evt ext-evt finish)
+  (define (commit self amt evt ext-evt finish)
     (define r
       (parameterize-break #f
         (non-atomically
@@ -248,7 +251,7 @@
 
   (define count-lines!
     (and user-count-lines!
-         (lambda () (end-atomic) (user-count-lines!) (start-atomic))))
+         (lambda (self) (end-atomic) (user-count-lines!) (start-atomic))))
 
   (define-values (init-offset file-position)
     (make-init-offset+file-position user-init-position))
@@ -257,39 +260,45 @@
     (and user-buffer-mode
          (make-buffer-mode user-buffer-mode)))
 
-  (cond
-   [user-peek-in
-    (make-core-input-port
-     #:name name
-     #:read-in
-     (if (input-port? user-read-in)
-         user-read-in
-         read-in)
-     #:peek-in
-     (if (input-port? user-peek-in)
-         user-peek-in
-         peek-in)
-     #:byte-ready
-     (if (input-port? user-peek-in)
-         user-peek-in
-         byte-ready)
-     #:close close
-     #:get-progress-evt (and user-get-progress-evt get-progress-evt)
-     #:commit (and user-commit commit)
-     #:get-location get-location
-     #:count-lines! count-lines!
-     #:init-offset init-offset
-     #:file-position file-position
-     #:buffer-mode buffer-mode)]
-   [else
-    (define-values (port buffer-flusher)
-      (open-input-peek-via-read
-       #:name name
-       #:read-in read-in
-       #:close close
-       #:get-location get-location
-       #:count-lines! count-lines!
-       #:init-offset init-offset
-       #:file-position file-position
-       #:alt-buffer-mode buffer-mode))
-    port]))
+  (finish-port/count
+   (cond
+     [user-peek-in
+      (new core-input-port
+           #:field
+           [name name]
+           [offset init-offset]
+           #:override
+           [read-in (if (input-port? user-read-in)
+                        user-read-in
+                        read-in)]
+           [peek-in (if (input-port? user-peek-in)
+                        user-peek-in
+                        peek-in)]
+           [byte-ready (if (input-port? user-peek-in)
+                           user-peek-in
+                           byte-ready)]
+           [close close]
+           [get-progress-evt (and user-get-progress-evt get-progress-evt)]
+           [commit (and user-commit commit)]
+           [get-location get-location]
+           [count-lines! count-lines!]
+           [file-position file-position]
+           [buffer-mode buffer-mode])]
+     [else
+      (new peek-via-read-input-port
+           #:field
+           [name name]
+           [offset init-offset]
+           #:override
+           [read-in/inner read-in]
+           [close (values
+                   (lambda (self)
+                     (close self)
+                     (send peek-via-read-input-port self close-peek-buffer)))]
+           [get-location  get-location]
+           [count-lines! count-lines!]
+           [file-position file-position]
+           [buffer-mode (or buffer-mode
+                            (case-lambda
+                              [(self) (send peek-via-read-input-port self default-buffer-mode)]
+                              [(self mode) (send peek-via-read-input-port self default-buffer-mode mode)]))])])))

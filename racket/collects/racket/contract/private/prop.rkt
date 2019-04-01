@@ -11,7 +11,10 @@
          contract-struct-projection
          contract-struct-val-first-projection
          contract-struct-late-neg-projection
+         contract-struct-collapsible-late-neg-projection
          contract-struct-stronger?
+         trusted-contract-struct?
+         trusted-contract-struct-stronger?
          contract-struct-equivalent?
          contract-struct-generate
          contract-struct-exercise
@@ -51,7 +54,9 @@
 
          prop:any/c prop:any/c?
          
-         build-context)
+         build-context
+
+         (protect-out trust-me))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -68,8 +73,9 @@
                                    exercise
                                    val-first-projection
                                    late-neg-projection
-                                   list-contract? ]
-  #:omit-define-syntaxes)
+                                   collapsible-late-neg-projection
+                                   list-contract? ])
+(define-struct (trusted-contract-property contract-property) ())
 
 (define (contract-property-guard prop info)
   (unless (contract-property? prop)
@@ -83,6 +89,11 @@
 
 (define-values [ prop:contract contract-struct? contract-struct-property ]
   (make-struct-type-property 'prop:contract contract-property-guard))
+
+;; determines if `c` is a contract that is trusted
+(define (trusted-contract-struct? c)
+  (and (contract-struct? c)
+       (trusted-contract-property? (contract-struct-property c))))
 
 (define (contract-struct-name c)
   (let* ([prop (contract-struct-property c)]
@@ -113,6 +124,13 @@
   (and get-projection
        (get-projection c)))
 
+(define (contract-struct-collapsible-late-neg-projection c)
+  (define prop (contract-struct-property c))
+  (define get-collapsible-projection (contract-property-collapsible-late-neg-projection prop))
+  (and get-collapsible-projection
+       (get-collapsible-projection c)))
+
+(define only-trusted? (make-parameter #f))
 (define (contract-struct-stronger/equivalent?
          a b
          trail
@@ -124,6 +142,9 @@
                 (chaperone-contract-struct? a))
             (equal? a b))
        #t]
+      [(and (only-trusted?)
+            (not (trusted-contract-struct? a)))
+       #f]
       [else
        (define prop (contract-struct-property a))
        (define stronger/equivalent? (contract-property-stronger/equivalent prop))
@@ -184,6 +205,12 @@
    stronger-trail
    contract-property-stronger
    #t))
+
+;; determines if `a` is stronger than `b` but using
+;; the contract-stronger method only on trusted contracts
+(define (trusted-contract-struct-stronger? a b)
+  (parameterize ([only-trusted? #t])
+    (contract-struct-stronger? a b)))
 
 (define equivalent-trail (make-parameter #f))
 (define (contract-struct-equivalent? a b)
@@ -290,17 +317,19 @@
 
 (define-logger racket/contract)
 
-(define ((build-property mk default-name proc-name first-order? equivalent-equal?)
+(define ((build-property mk trusted-mk default-name proc-name first-order? equivalent-equal?)
          #:name [get-name #f]
          #:first-order [get-first-order #f]
          #:projection [get-projection #f]
          #:val-first-projection [get-val-first-projection #f]
          #:late-neg-projection [get-late-neg-projection #f]
+         #:collapsible-late-neg-projection [get-collapsible-late-neg-projection #f]
          #:stronger [stronger #f]
          #:equivalent [equivalent #f]
          #:generate [generate (λ (ctc) (λ (fuel) #f))]
          #:exercise [exercise (λ (ctc) (λ (fuel) (values void '())))]
-         #:list-contract? [list-contract? (λ (c) #f)])
+         #:list-contract? [list-contract? (λ (c) #f)]
+         #:trusted [trusted #f])
   (unless (or get-first-order
               get-projection
               get-val-first-projection
@@ -312,12 +341,14 @@
       " #:projection, #:val-first-projection, #:late-neg-projection, or #:first-order"
       " argument to not be #f, but all four were #f")))
 
+  ;; TODO: update for collapsible late-neg-projection
   (unless get-late-neg-projection
-    (unless first-order?
-      (log-racket/contract-info
-       "no late-neg-projection passed to ~s~a"
-       proc-name
-       (build-context))))
+    (unless get-collapsible-late-neg-projection
+      (unless first-order?
+        (log-racket/contract-info
+         "no late-neg-projection passed to ~s~a"
+         proc-name
+         (build-context)))))
 
   (unless (and (procedure? list-contract?)
                (procedure-arity-includes? list-contract? 1))
@@ -329,7 +360,8 @@
             "  in the #:list-contract? argument")
            list-contract?))
 
-  (mk (or get-name (λ (c) default-name))
+  ((if (equal? trusted trust-me) trusted-mk mk)
+   (or get-name (λ (c) default-name))
       (or get-first-order get-any?)
       get-projection
       (or stronger weakest)
@@ -344,7 +376,10 @@
             (λ (c) (late-neg-first-order-projection (get-name c) (get-first-order c)))]
            [else #f])]
         [else get-late-neg-projection])
+      get-collapsible-late-neg-projection
       list-contract?))
+
+(define trust-me (gensym 'trustme))
 
 (define (build-context)
   (apply
@@ -355,18 +390,21 @@
     
 (define build-contract-property
   (procedure-rename
-   (build-property make-contract-property 'anonymous-contract 'build-contract-property #f #f)
+   (build-property make-contract-property make-trusted-contract-property
+                   'anonymous-contract 'build-contract-property #f #f)
    'build-contract-property))
 
 (define build-flat-contract-property
   (procedure-rename
    (build-property (compose make-flat-contract-property make-contract-property)
+                   (compose make-flat-contract-property make-trusted-contract-property)
                    'anonymous-flat-contract 'build-flat-contract-property #t #t)
    'build-flat-contract-property))
 
 (define build-chaperone-contract-property
   (procedure-rename
    (build-property (compose make-chaperone-contract-property make-contract-property)
+                   (compose make-chaperone-contract-property make-trusted-contract-property)
                    'anonymous-chaperone-contract 'build-chaperone-contract-property #f #t)
    'build-chaperone-contract-property))
 
@@ -406,7 +444,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define-struct make-contract [ name first-order projection
-                                    val-first-projection late-neg-projection 
+                                    val-first-projection late-neg-projection
+                                    collapsible-late-neg-projection
                                     stronger equivalent generate exercise list-contract? ]
   #:omit-define-syntaxes
   #:property prop:custom-write
@@ -421,6 +460,7 @@
    #:projection (lambda (c) (make-contract-projection c))
    #:val-first-projection (lambda (c) (make-contract-val-first-projection c))
    #:late-neg-projection (lambda (c) (make-contract-late-neg-projection c))
+   #:collapsible-late-neg-projection (lambda (c) (make-contract-collapsible-late-neg-projection c))
    #:stronger (lambda (a b) ((make-contract-stronger a) a b))
    #:generate (lambda (c) (make-contract-generate c))
    #:exercise (lambda (c) (make-contract-exercise c))
@@ -428,6 +468,7 @@
 
 (define-struct make-chaperone-contract [ name first-order projection
                                               val-first-projection late-neg-projection
+                                              collapsible-late-neg-projection
                                               stronger equivalent generate exercise list-contract? ]
   #:omit-define-syntaxes
   #:property prop:custom-write
@@ -442,6 +483,7 @@
    #:projection (lambda (c) (make-chaperone-contract-projection c))
    #:val-first-projection (lambda (c) (make-chaperone-contract-val-first-projection c))
    #:late-neg-projection (lambda (c) (make-chaperone-contract-late-neg-projection c))
+   #:collapsible-late-neg-projection (lambda (c) (make-chaperone-contract-collapsible-late-neg-projection c))
    #:stronger (lambda (a b) ((make-chaperone-contract-stronger a) a b))
    #:generate (lambda (c) (make-chaperone-contract-generate c))
    #:exercise (lambda (c) (make-chaperone-contract-exercise c))
@@ -449,6 +491,7 @@
 
 (define-struct make-flat-contract [ name first-order projection
                                          val-first-projection late-neg-projection
+                                         collapsible-late-neg-projection
                                          stronger equivalent generate exercise list-contract? ]
   #:omit-define-syntaxes
   #:property prop:custom-write
@@ -462,6 +505,7 @@
    #:first-order (lambda (c) (make-flat-contract-first-order c))
    #:val-first-projection (λ (c) (make-flat-contract-val-first-projection c))
    #:late-neg-projection (λ (c) (make-flat-contract-late-neg-projection c))
+   #:collapsible-late-neg-projection (lambda (c) (make-flat-contract-collapsible-late-neg-projection c))
    #:projection (lambda (c) (make-flat-contract-projection c))
    #:stronger (lambda (a b) ((make-flat-contract-stronger a) a b))
    #:generate (lambda (c) (make-flat-contract-generate c))
@@ -474,6 +518,7 @@
          #:projection [projection #f]
          #:val-first-projection [val-first-projection #f]
          #:late-neg-projection [late-neg-projection #f]
+         #:collapsible-late-neg-projection [collapsible-late-neg-projection #f]
          #:stronger [stronger #f]
          #:equivalent [equivalent #f]
          #:generate [generate (λ (fuel) #f)]
@@ -491,12 +536,14 @@
       " #:projection, #:val-first-projection, #:late-neg-projection, or #:first-order"
       " argument to not be #f, but all four were #f")))
   
+  ;; TODO: handle the addition of the collapsible-late-neg-projection
   (unless late-neg-projection
-    (unless first-order?
-      (log-racket/contract-info
-       "no late-neg-projection passed to ~s~a"
-       proc-name
-       (build-context))))
+    (unless collapsible-late-neg-projection
+      (unless first-order?
+        (log-racket/contract-info
+         "no late-neg-projection passed to ~s~a"
+         proc-name
+         (build-context)))))
 
   (mk (or name default-name)
       (or first-order any?) 
@@ -509,6 +556,7 @@
             (late-neg-first-order-projection name first-order)]
            [else #f])]
         [else late-neg-projection])
+      collapsible-late-neg-projection
       (or stronger weakest)
       (or equivalent (if equivalent-equal? equal? weakest))
       generate exercise

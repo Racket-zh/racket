@@ -7,10 +7,10 @@
 ;; place-local values, and the rest are used by the thread, io, etc.,
 ;; layers for directly accessed variables.
 
-(define NUM-PLACE-REGISTERS 64)
+(define NUM-PLACE-REGISTERS 128)
 
-(define-virtual-register place-registers (make-vector NUM-PLACE-REGISTERS 0))
-(define place-register-inits (make-vector NUM-PLACE-REGISTERS 0))
+(define-virtual-register place-registers (#%make-vector NUM-PLACE-REGISTERS 0))
+(define place-register-inits (#%make-vector NUM-PLACE-REGISTERS 0))
 
 (define (init-place-locals!)
   (#%vector-set! (place-registers) 0 (make-weak-hasheq)))
@@ -47,10 +47,14 @@
 
 ;; ----------------------------------------
 
-(define place-specific-table (make-hasheq))
+(define place-specific-table (unsafe-make-place-local #f))
 
 (define (unsafe-get-place-table)
-  place-specific-table)
+  (with-interrupts-disabled
+   (or (unsafe-place-local-ref place-specific-table)
+       (let ([ht (make-hasheq)])
+         (unsafe-place-local-set! place-specific-table ht)
+         ht))))
 
 ;; ----------------------------------------
 
@@ -63,17 +67,23 @@
     (fork-thread (lambda ()
                    (init-virtual-registers)
                    (place-registers (vector-copy place-register-inits))
+                   (root-thread-cell-values (make-empty-thread-cell-values))
                    (init-place-locals!)
-                   (foreign-place-init!)
+                   (register-as-place-main!)
                    (let ([result (call/cc
                                   (lambda (esc)
                                     (set-box! place-esc-box esc)
                                     (thunk)
                                     0))])
-                     (finish-proc result)))))]
+                     (finish-proc result)))))
+  ;; Must be called within an engine, used for memory accounting:
+  (define (current-place-roots)
+    (list (place-registers)
+          (current-engine-thread-cell-values)))]
  [else
   (define (place-enabled?) #f)
-  (define (fork-place thunk finish-proc) #f)])
+  (define (fork-place thunk finish-proc) #f)
+  (define (current-place-roots) '())])
 
 (define do-start-place void)
 (define (set-start-place! proc)
@@ -88,6 +98,13 @@
         (esc v)
         (#%exit v))))
 
-(define (place-shared? v)
-  #f)
+(define place-shared (make-weak-eq-hashtable))
 
+(define (place-shared? v)
+  (with-global-lock
+   (hashtable-ref place-shared v #f)))
+
+(define (register-place-shared v)
+  (with-global-lock
+   (hashtable-set! place-shared v #t))
+  v)

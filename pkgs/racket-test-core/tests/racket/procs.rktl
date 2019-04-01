@@ -57,7 +57,8 @@
 (define f1:+ (make-keyword-procedure
               (lambda (kws kw-args x)
                 (cons x kw-args))
-              (lambda (x) (list x))))
+              (let ([f1:+ (lambda (x) (list x))])
+                f1:+)))
 (define f1:+/drop (make-keyword-procedure
                    (lambda (kws kw-args x)
                      kw-args)
@@ -594,7 +595,25 @@
     (write (compile '(f)) o)
     (test #t 'same? (eval (parameterize ([read-accept-compiled #t])
                             (read (open-input-bytes (get-output-bytes o))))))))
-           
+
+;; ----------------------------------------
+;; Check prop:arity-string
+
+(err/rt-test (let ()
+               (struct a (x)
+                 #:property prop:arity-string 'bad)
+               (a 0)))
+
+(err/rt-test (let ()
+               (struct evens (proc)
+                 #:property prop:procedure (struct-field-index proc)
+                 #:property prop:arity-string
+                 (lambda (p)
+                   "an even number of arguments"))
+               ((evens (lambda (x y) x)) 100))
+             exn:fail:contract?
+             #rx"an even number of arguments")
+
 ;; ----------------------------------------
 
 (report-errs)

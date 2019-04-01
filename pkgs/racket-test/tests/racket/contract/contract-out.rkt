@@ -1230,6 +1230,34 @@
       (eval '(dynamic-require ''provide/contract66-m2 #f)))
    "provide/contract66-m1")
 
+  (test/spec-passed
+   'provide/contract67
+   '(let ()
+      (eval '(module provide/contract67-a racket/base
+               (require racket/contract/base)
+               (struct stream (x [y #:mutable]))
+               (provide (contract-out (struct stream ([x any/c] [y any/c]))))))
+
+      (eval '(module provide/contract67-b racket/base
+               (require 'provide/contract67-a racket/contract/base)
+               (provide (contract-out (struct stream ([x any/c] [y any/c]))))))))
+
+  (contract-error-test
+   'provide/contract-struct-out
+   #'(begin
+       (eval '(module pos racket/base
+                (require racket/contract)
+                (provide
+                 (contract-out
+                  [struct (b not-a) ()])
+
+                 (struct a ())
+                 (struct b a ())))))
+   (λ (x)
+     (and (exn:fail:syntax? x)
+          (regexp-match #rx"^contract-out: expected a struct name"
+                        (exn-message x)))))
+
   (contract-error-test
    'contract-error-test8
    #'(begin
@@ -1648,8 +1676,7 @@
      (and (exn:fail:contract:blame? x)
           ;; ensure there is context information
           (regexp-match? #rx"in: the 1st argument of" (exn-message x))
-          (regexp-match? #rx"blaming: [^\n]*contract7-n" (exn-message x)))))
-  
+          (regexp-match? #rx"blaming: [^\n]*contract7-n" (exn-message x)))))  
   
   (contract-error-test
    're-providing

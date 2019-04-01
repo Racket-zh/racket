@@ -13,7 +13,8 @@
          "../file/host.rkt"
          "../string/convert.rkt"
          "../locale/string.rkt"
-         "../envvar/main.rkt")
+         "../envvar/main.rkt"
+         "../sandman/main.rkt")
 
 (provide (rename-out [do-subprocess subprocess])
          subprocess?
@@ -34,7 +35,12 @@
   (poller (lambda (sp ctx)
             (define v (rktio_poll_process_done rktio (subprocess-process sp)))
             (if (eqv? v 0)
-                (values #f sp)
+                (begin
+                  (sandman-poll-ctx-add-poll-set-adder!
+                   ctx
+                   (lambda (ps)
+                     (rktio_poll_add_process rktio (subprocess-process sp) ps)))
+                  (values #f sp))
                 (values (list sp) #f)))))
 
 (define do-subprocess
@@ -61,8 +67,14 @@
           [(or (not group/command)
                (eq? group/command 'new)
                (subprocess? group/command))
-           (define command (cadr command/args))
+           (unless (pair? command/args)
+             (raise-arguments-error who "missing command argument after group argument"))
+           (define command (car command/args))
            (check who path-string? command)
+           (when (subprocess? group/command)
+             (unless (subprocess-is-group? group/command)
+               (raise-arguments-error who "subprocess does not represent a new group"
+                                      "subprocess" group/command)))
            (values group/command command (cdr command/args))]
           [else
            (raise-argument-error who "(or/c path-string? #f 'new subprocess?)" group/command)]))
@@ -125,7 +137,7 @@
                                  (and stdout (fd-port-fd stdout))
                                  (and stdin (fd-port-fd stdin))
                                  (and stderr (not (eq? stderr 'stdout)) (fd-port-fd stderr))
-                                 (and group (subprocess-process group))
+                                 (and (subprocess? group) (subprocess-process group))
                                  (->host (current-directory) #f null)
                                  envvars flags))
 
@@ -206,8 +218,8 @@
 (define/who (subprocess-kill sp force?)
   (check who subprocess? sp)
   (atomically (if force?
-                  (interrupt-subprocess sp)
-                  (kill-subprocess sp))))
+                  (kill-subprocess sp)
+                  (interrupt-subprocess sp))))
 
 ;; ----------------------------------------
 

@@ -9,7 +9,9 @@
          racket/pretty
          "../parse.rkt"
          (except-in syntax/parse/private/residual
-                    prop:pattern-expander syntax-local-syntax-parse-pattern-introduce)
+                    prop:syntax-class
+                    prop:pattern-expander
+                    syntax-local-syntax-parse-pattern-introduce)
          "private/runtime.rkt"
          "private/runtime-progress.rkt"
          "private/runtime-report.rkt"
@@ -42,7 +44,7 @@
                         [argu argu]
                         [(name ...) (map attr-name attrs)]
                         [(depth ...) (map attr-depth attrs)])
-            #'(let ([fh (lambda (fs) fs)])
+            #'(let ([fh (lambda (undos fs) fs)])
                 (app-argu parser x x (ps-empty x x) #f null fh fh #f
                           (lambda (fh undos . attr-values)
                             (map vector '(name ...) '(depth ...) attr-values))
@@ -73,7 +75,7 @@
 (define-syntax (debug-rhs stx)
   (syntax-case stx ()
     [(debug-rhs rhs)
-     (let ([rhs (parse-rhs #'rhs #f #f #:context stx)])
+     (let ([rhs (parse-rhs #'rhs #f #:context stx)])
        #`(quote #,rhs))]))
 
 (define-syntax (debug-pattern stx)

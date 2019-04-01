@@ -51,7 +51,7 @@ character that would need escaping inside a Racket string is
 @litchar{"}.}
 
 If we needed to match the character @litchar{.} itself, we can escape
-it by precede it with a @litchar{\}.  The character sequence
+it by preceding it with a @litchar{\}.  The character sequence
 @litchar{\.} is thus a @tech{metasequence}, since it doesn't match
 itself but rather just @litchar{.}.  So, to match @litchar{a},
 @litchar{.}, and @litchar{c} in succession, we use the regexp pattern
@@ -500,10 +500,13 @@ needed to ensure an overall match.
 (regexp-match #rx"<.*?>" "<tag1> <tag2> <tag3>")
 ]
 
-The non-greedy quantifiers are respectively: @litchar{*?},
-@litchar{+?}, @litchar{??}, @litchar["{"]@math{m}@litchar["}?"],
-@litchar["{"]@math{m}@litchar{,}@math{n}@litchar["}?"].  Note the two
-uses of the metacharacter @litchar{?}.
+The non-greedy quantifiers are @litchar{*?}, @litchar{+?},
+@litchar{??}, @litchar["{"]@math{m}@litchar["}?"], and
+@litchar["{"]@math{m}@litchar{,}@math{n}@litchar["}?"], although
+@litchar["{"]@math{m}@litchar["}?"] is always the same as
+@litchar["{"]@math{m}@litchar["}"]. Note that the metacharacter
+@litchar{?} has two different uses, and both uses are represented in
+@litchar{??}.
 
 @; ----------------------------------------
 

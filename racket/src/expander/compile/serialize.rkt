@@ -1,5 +1,6 @@
 #lang racket/base
 (require (for-syntax racket/base)
+         racket/fasl
          "serialize-property.rkt"
          "serialize-state.rkt"
          "../common/set.rkt"
@@ -73,7 +74,10 @@
          add-module-path-index!/pos
          generate-module-path-index-deserialize
          mpis-as-vector
-         
+
+         generate-module-data-linklet
+         generate-module-declaration-linklet
+
          generate-deserialize
 
          deserialize-instance
@@ -195,6 +199,36 @@
       (and (pair? d)
            (or (has-symbol? (car d) vars)
                (has-symbol? (cdr d) vars)))))
+
+;; ----------------------------------------
+
+(define (generate-module-data-linklet mpis)
+  `(linklet
+    ;; imports
+    (,deserialize-imports)
+    ;; exports
+    (,mpi-vector-id)
+    ;; body
+    (define-values (,inspector-id) (current-code-inspector))
+    (define-values (,mpi-vector-id)
+      ,(generate-module-path-index-deserialize mpis))))
+
+(define (generate-module-declaration-linklet mpis self requires provides
+                                             phase-to-link-module-uses-expr)
+  `(linklet
+    ;; imports
+    (,deserialize-imports
+     [,mpi-vector-id])
+    ;; exports
+    (self-mpi
+     requires
+     provides
+     phase-to-link-modules)
+    ;; body
+    (define-values (self-mpi) ,(add-module-path-index! mpis self))
+    (define-values (requires) ,(generate-deserialize requires mpis #:syntax-support? #f))
+    (define-values (provides) ,(generate-deserialize provides mpis #:syntax-support? #f))
+    (define-values (phase-to-link-modules) ,phase-to-link-module-uses-expr)))
 
 ;; ----------------------------------------
 ;; Module-use serialization --- as an expression, like module path
@@ -570,20 +604,37 @@
       (for ([i (in-range (hash-count mutables))])
         (ser-shell-fill! (hash-ref rev-mutables i)))
       (reap-stream!)))
+
+  ;; Final result:
+  (define result
+    (begin
+      (ser-push! v)
+      (reap-stream!)))
   
   ;; Put it all together:
-  `(deserialize
-    ,mpi-vector-id
-    ,(if syntax-support? inspector-id #f)
-    ,(if syntax-support? bulk-binding-registry-id #f)
-    ',(hash-count mutables)
-    ',mutable-shell-bindings
-    ',(hash-count shares)
-    ',shared-bindings
-    ',mutable-fills
-    ',(begin
-        (ser-push! v)
-        (reap-stream!))))
+  (define (finish mutable-shell-bindings-expr shared-bindings-expr  mutable-fills-expr result-expr)
+    `(deserialize
+      ,mpi-vector-id
+      ,(if syntax-support? inspector-id #f)
+      ,(if syntax-support? bulk-binding-registry-id #f)
+      ',(hash-count mutables)
+      ,mutable-shell-bindings-expr
+      ',(hash-count shares)
+      ,shared-bindings-expr
+      ,mutable-fills-expr
+      ,result-expr))
+
+  ;; Putting the quoted-data construction into one vector makes
+  ;; it easy to specialize in some back ends to a more compact
+  ;; format.
+  `(let-values ([(data) ',(vector mutable-shell-bindings
+                                  shared-bindings
+                                  mutable-fills
+                                  result)])
+     ,(finish '(unsafe-vector*-ref data 0)
+              '(unsafe-vector*-ref data 1)
+              '(unsafe-vector*-ref data 2)
+              '(unsafe-vector*-ref data 3))))
 
 (define (sorted-hash-keys ht)
   (define ks (hash-keys ht))

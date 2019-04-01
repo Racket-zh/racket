@@ -14,4 +14,8 @@
     (let ([v (cdr (ephemeron-p e))])
       (if (eq? v #!bwp)
           gced-v
-          v))]))
+          v))]
+   [(e gced-v keep-live)
+    (let ([v (ephemeron-value e gced-v)])
+      (#%$keep-live keep-live)
+      v)]))

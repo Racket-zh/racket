@@ -110,6 +110,23 @@
   (err/rt-test (readstr "#fals")  exn:fail:read:eof?)
   (err/rt-test (readstr "#falser") exn:fail:read?))
 
+(parameterize ([read-decimal-as-inexact #f])
+  (test 1 readstr "1.0")
+  (test 100000 readstr "1e5")
+  (test 100000 readstr "1#e4")
+  (test 10 readstr "1#")
+  (test 1/2 readstr "1#/20")
+  (test 1/2 readstr "10/2#")
+  (test 1/2 readstr "1#/2#")
+  (test 1/2 string->number "1#/2#")
+  (test 10+3i readstr "1#+3i")
+  (test 1+30i readstr "1+3#i")
+  (err/rt-test (readstr "1#/0") exn:fail:read?)
+  (err/rt-test (readstr "1/0#") exn:fail:read?)
+  (err/rt-test (readstr "1#/0#") exn:fail:read?)
+  (test #f string->number "1#/0")
+  (test #f string->number "1/0#"))
+
 (test (integer->char 0) readstr "#\\nul")
 (test (integer->char 0) readstr "#\\Nul")
 (test (integer->char 0) readstr "#\\NuL")
@@ -409,6 +426,10 @@
 (err/rt-test (readstr "#0=#hash(#0#)") exn:fail:read?)
 (err/rt-test (readstr "#hash([1 . 2))") exn:fail:read?)
 
+(test #t eq? (readstr "#hash()") (hash))
+(test #t eq? (readstr "#hasheq()") (hasheq))
+(test #t eq? (readstr "#hasheqv()") (hasheqv))
+
 (define (test-ht t size eq? key val)
   (test #t hash? t)
   (test eq? hash-eq? t)
@@ -522,6 +543,14 @@
       (lambda (x) (and (vector? x) (eq? (vector-ref x 0) (vector-ref x 1)))) 
       #2((1 2)))
 
+;; Immutable vectors and boxes from `read-syntax`
+(test #t immutable? (syntax-e (read-syntax #f (open-input-string "#(a b c)"))))
+(test #t immutable? (syntax-e (read-syntax #f (open-input-string "#5(a b c)"))))
+(test #t immutable? (syntax-e (read-syntax #f (open-input-string "#&a"))))
+(test #f immutable? (read (open-input-string "#(a b c)")))
+(test #f immutable? (read (open-input-string "#5(a b c)")))
+(test #f immutable? (read (open-input-string "#&a")))
+
 (define (graph-error-tests readstr graph-ok?)
   (err/rt-test (readstr "#0#") exn:fail:read?)
   (err/rt-test (readstr "#0=#0#") exn:fail:read?)
@@ -591,7 +620,7 @@
 		    (string-append "\\" (cadar l)) 
 		    (cadar l))
     (loop (cdr l))]
-   [else 
+   [else
     (test-write-sym (cadar l) (cadar l) (cadar l))
     (loop (cdr l))]))
 
@@ -1380,7 +1409,41 @@
 (err/rt-test (srcloc->string 1))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Make sure that a module load triggered by `#lang` or `#reader` is in
+;; a root namespace, including the call to the loaded function
 
-(report-errs)
+(module provides-a-reader-to-check-phase racket/base
+  (provide read read-syntax)
 
+  (define (check)
+    (unless (zero? (namespace-base-phase (current-namespace)))
+      (error "reader callback with current namespace at the wrong phase:"
+             (namespace-base-phase (current-namespace)))))
+
+  (check)
+
+  (define (read . args) (check) 'ok)
+  (define (read-syntax . args) (check) #''ok))
+
+;; Check in top level:
+(test 'ok
+      'reader-module-phase
+      (let-syntax ([anything
+                    (lambda (stx)
+                      (parameterize ([read-accept-reader #t])
+                        (read-syntax 'm (open-input-string "#lang reader 'provides-a-reader-to-check-phase"))))])
+        (anything)))
+
+;; Check module:
+(module m racket/base
+  (require (for-syntax racket/base))
+  (let-syntax ([anything
+                (lambda (stx)
+                  (parameterize ([read-accept-reader #t])
+                    (read-syntax 'm (open-input-string "#lang reader 'provides-a-reader-to-check-phase"))))])
+    (anything)))
+
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; readtable has `report-errs`:
 (load-relative "readtable.rktl")

@@ -38,6 +38,7 @@ OBJS = rktio_fs.@LTO@ \
        rktio_flock.@LTO@ \
        rktio_shellex.@LTO@ \
        rktio_time.@LTO@ \
+       rktio_cpu.@LTO@ \
        rktio_syslog.@LTO@ \
        rktio_convert.@LTO@ \
        rktio_sha1.@LTO@ \
@@ -46,6 +47,7 @@ OBJS = rktio_fs.@LTO@ \
        rktio_error.@LTO@ \
        rktio_hash.@LTO@ \
        rktio_wide.@LTO@ \
+       rktio_console.@LTO@ \
        rktio_main.@LTO@
 
 default_rktio:
@@ -109,6 +111,9 @@ rktio_shellex.@LTO@: $(srcdir)/rktio_shellex.c $(RKTIO_HEADERS)
 rktio_time.@LTO@: $(srcdir)/rktio_time.c $(RKTIO_HEADERS)
 	$(CC) $(CFLAGS) -I$(srcdir) -I. -o rktio_time.@LTO@ -c $(srcdir)/rktio_time.c
 
+rktio_cpu.@LTO@: $(srcdir)/rktio_cpu.c $(RKTIO_HEADERS)
+	$(CC) $(CFLAGS) -I$(srcdir) -I. -o rktio_cpu.@LTO@ -c $(srcdir)/rktio_cpu.c
+
 rktio_syslog.@LTO@: $(srcdir)/rktio_syslog.c $(RKTIO_HEADERS)
 	$(CC) $(CFLAGS) -I$(srcdir) -I. -o rktio_syslog.@LTO@ -c $(srcdir)/rktio_syslog.c
 
@@ -132,6 +137,9 @@ rktio_hash.@LTO@: $(srcdir)/rktio_hash.c $(RKTIO_HEADERS)
 
 rktio_wide.@LTO@: $(srcdir)/rktio_wide.c $(RKTIO_HEADERS)
 	$(CC) $(CFLAGS) -I$(srcdir) -I. -o rktio_wide.@LTO@ -c $(srcdir)/rktio_wide.c
+
+rktio_console.@LTO@: $(srcdir)/rktio_console.c $(RKTIO_HEADERS)
+	$(CC) $(CFLAGS) -I$(srcdir) -I. -o rktio_console.@LTO@ -c $(srcdir)/rktio_console.c
 
 rktio_main.@LTO@: $(srcdir)/rktio_main.c $(RKTIO_HEADERS)
 	$(CC) $(CFLAGS) -I$(srcdir) -I. -o rktio_main.@LTO@ -c $(srcdir)/rktio_main.c

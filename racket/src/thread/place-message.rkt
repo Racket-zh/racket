@@ -42,7 +42,7 @@
              (or (not direct?)
                  (and (immutable? v)
                       (not (impersonator? v))))
-             (let ([graph (hash-ref graph v #t)])
+             (let ([graph (hash-set graph v #t)])
                (for/and ([e (in-vector v)])
                  (loop e graph))))
         (and (immutable-prefab-struct-key v)
@@ -124,10 +124,11 @@
                  (define ph (make-placeholder #f))
                  (hash-set! graph v ph)
                  (maybe-ph
+                  ph
                   (apply make-prefab-struct
                          k
                          (for/list ([e (in-vector (struct->vector v) 1)])
-                           (loop v)))))]
+                           (loop e)))))]
            [(hash? v)
             (define ph (make-placeholder #f))
             (hash-set! graph v ph)
@@ -176,14 +177,15 @@
       [(pair? v)
        (cons (loop (car v)) (loop (cdr v)))]
       [(vector? v)
-       (for/vector #:length (vector-length v) ([e (in-vector v)])
-         (loop e))]
+       (vector->immutable-vector
+        (for/vector #:length (vector-length v) ([e (in-vector v)])
+          (loop e)))]
       [(immutable-prefab-struct-key v)
        => (lambda (k)
             (apply make-prefab-struct
                    k
                    (for/list ([e (in-vector (struct->vector v) 1)])
-                     (loop v))))]
+                     (loop e))))]
       [(hash? v)
        (cond
          [(hash-eq? v)
@@ -195,7 +197,9 @@
          [else
           (for/hash ([(k v) (in-hash v)])
             (values (loop k) (loop v)))])]
-      [(cpointer? v)
+      [(and (cpointer? v)
+            v ; not #f
+            (not (bytes? v)))
        (ptr-add v 0)]
       [(message-ized? v)
        ((message-ized-unmessage v))]

@@ -56,10 +56,14 @@
          ((abs (- x y)) . < . #e1e-10))))
 
 (define (single=? x y)
-  (and (single-flonum? y)
-       (let ([x  (inexact->exact x)]
-             [y  (inexact->exact y)])
-         ((abs (- x y)) . < . #e1e-6))))
+  (cond
+    [(eq? 'chez-scheme (system-type 'vm))
+     (double=? x y)]
+    [else
+     (and (single-flonum? y)
+          (let ([x  (inexact->exact x)]
+                [y  (inexact->exact y)])
+            ((abs (- x y)) . < . #e1e-6)))]))
 
 ;; =========================================================================
 ;; pi
@@ -336,10 +340,10 @@
 (test -1.0 tanh -max.0)
 (test -1.0 tanh -20.0)
 (test #t double=? tanh-1 (tanh -1.0))
-(test -0.0 tanh -min.0)
+(test -min.0 tanh -min.0)
 (test -0.0 tanh -0.0)
 (test 0.0 tanh 0.0)
-(test 0.0 tanh +min.0)
+(test +min.0 tanh +min.0)
 (test #t double=? tanh+1 (tanh 1.0))
 (test 1.0 tanh 20.0)
 (test 1.0 tanh +max.0)

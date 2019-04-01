@@ -1,5 +1,8 @@
 #lang racket/base
-(require racket/future)
+(require (only-in racket/future
+                  processor-count)
+         (only-in racket/place
+                  place-enabled?))
 
 ;; other params are provided by declaration
 (provide call-with-flag-params
@@ -57,6 +60,7 @@
 					 (if (fixnum? (arithmetic-shift 1 40))
 					     8    ; 64-bit machine
 					     4))) ; 32-bit machine
+(define-flag-param parallel-use-places (place-enabled?))
 (define-flag-param verbose #f)
 (define-flag-param make-verbose #f)
 (define-flag-param compiler-verbose #f)
@@ -78,12 +82,15 @@
 (define-flag-param always-check-dependencies #f)
 (define-flag-param fix-dependencies #f)
 (define-flag-param check-unused-dependencies #f)
+(define-flag-param recompile-only #f)
 (define-flag-param call-install #t)
 (define-flag-param call-post-install #t)
 (define-flag-param pause-on-errors #f)
 (define-flag-param force-unpacks #f)
 (define-flag-param doc-pdf-dest #f)
 (define-flag-param fail-fast #f)
+(define-flag-param next-error-out-file #f)
+(define-flag-param previous-error-in-file #f)
 
 (define specific-collections (make-parameter null))
 (define specific-packages (make-parameter null))

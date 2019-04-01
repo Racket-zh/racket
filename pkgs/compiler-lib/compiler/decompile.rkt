@@ -84,6 +84,8 @@
         (decompile-module top)])]
     [(linkl? top)
      (decompile-linklet top)]
+    [(faslable-correlated-linklet? top)
+     (strip-correlated (faslable-correlated-linklet-expr top))]
     [else `(quote ,top)]))
 
 (define (decompile-module-with-submodules l-dir name-list main-l)
@@ -107,11 +109,16 @@
     (let ([data-l (hash-ref ht 'data #f)]
           [decl-l (hash-ref ht 'decl #f)])
       (define (zo->linklet l)
-        (let ([o (open-output-bytes)])
-          (zo-marshal-to (linkl-bundle (hasheq 'data l)) o)
-          (parameterize ([read-accept-compiled #t])
-            (define b (read (open-input-bytes (get-output-bytes o))))
-            (hash-ref (linklet-bundle->hash b) 'data))))
+        (cond
+          [(faslable-correlated-linklet? l)
+           (compile-linklet (strip-correlated (faslable-correlated-linklet-expr l))
+                            (faslable-correlated-linklet-name l))]
+          [else
+           (let ([o (open-output-bytes)])
+             (zo-marshal-to (linkl-bundle (hasheq 'data l)) o)
+             (parameterize ([read-accept-compiled #t])
+               (define b (read (open-input-bytes (get-output-bytes o))))
+               (hash-ref (linklet-bundle->hash b) 'data)))]))
       (cond
         [(and data-l
               decl-l)
@@ -184,7 +191,10 @@
              null))))
 
 (define (decompile-single-top b)
-  (define forms (decompile-linklet (hash-ref (linkl-bundle-table b) 0) #:just-body? #t))
+  (define forms (let ([l (hash-ref (linkl-bundle-table b) 0 #f)])
+                  (if l
+                      (decompile-linklet l #:just-body? #t)
+                      '(<opaque-compiled-linklet>))))
   (if (= (length forms) 1)
       (car forms)
       `(begin ,@forms)))
@@ -225,7 +235,12 @@
                                          [import-shape (in-list import-shapes)]
                                          #:when import-shape)
                                 `[,import ,import-shape]))
-           ,@body-l))]))
+           '(source-names: ,source-names)
+           ,@body-l))]
+    [(struct faslable-correlated-linklet (expr name))
+     (match (strip-correlated expr)
+       [`(linklet ,imports ,exports ,body-l ...)
+        body-l])]))
 
 (define (decompile-data-linklet l)
   (match l
@@ -245,6 +260,29 @@
                                   result-vec)]
            [else
             (decompile-linklet l)])]
+       [else
+        (decompile-linklet l)])]
+    [(struct faslable-correlated-linklet (expr name))
+     (match (strip-correlated expr)
+       [`(linklet ,_ ,_
+           ,_
+           (define-values ,_
+             (lambda ,_
+               (begin
+                 (vector-copy! ,_ ,_ (let-values ([(.inspector) #f])
+                                       (let-values ([(data)
+                                                     '#(,mutable-vec ,share-vec ,mutable-fill-vec ,result-vec)])
+                                         (deserialize .mpi-vector .inspector .bulk-binding-registry
+                                                      ',num-mutables (,_ data 0)
+                                                      ',num-shares (,_ data 1)
+                                                      (,_ data 2)
+                                                      (,_ data 3)))))
+                 ,_))))
+        (decompile-deserialize '.mpi-vector '.inspector '.bulk-binding-registry
+                               num-mutables mutable-vec
+                               num-shares share-vec
+                               mutable-fill-vec
+                               result-vec)]
        [else
         (decompile-linklet l)])]
     [else
@@ -716,7 +754,24 @@
     [else
      (error 'deserialize "bad fill encoding: ~v" (vector-ref vec pos))]))
   
-  
+;; ----------------------------------------
+
+(struct faslable-correlated-linklet (expr name)
+  #:prefab)
+
+(struct faslable-correlated (e source position line column span props)
+  #:prefab)
+
+(define (strip-correlated v)
+  (let strip ([v v])
+    (cond
+      [(pair? v)
+       (cons (strip (car v))
+             (strip (cdr v)))]
+      [(faslable-correlated? v)
+       (strip (faslable-correlated-e v))]
+      [else v])))
+
 ;; ----------------------------------------
 
 #;

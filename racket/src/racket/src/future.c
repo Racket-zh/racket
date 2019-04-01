@@ -1,25 +1,6 @@
-/*
-  Racket
-  Copyright (c) 2006-2018 PLT Design Inc.
-
-    This library is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Library General Public
-    License as published by the Free Software Foundation; either
-    version 2 of the License, or (at your option) any later version.
-
-    This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Library General Public License for more details.
-
-    You should have received a copy of the GNU Library General Public
-    License along with this library; if not, write to the Free
-    Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
-    Boston, MA 02110-1301 USA.
-*/
-
 #include "schpriv.h"
 #include "schmach.h"
+#include "schrktio.h"
 
 static Scheme_Object *future_p(int argc, Scheme_Object *argv[])
 {
@@ -423,7 +404,6 @@ static Scheme_Object *reset_future_logs_for_tracking(int argc, Scheme_Object *ar
 static Scheme_Object *mark_future_trace_end(int argc, Scheme_Object *argv[]);
 
 READ_ONLY static int cpucount;
-static void init_cpucount(void);
 
 #ifdef MZ_PRECISE_GC
 # define scheme_future_setjmp(newbuf) scheme_jit_setjmp((newbuf).jb)
@@ -555,8 +535,6 @@ void scheme_init_futures(Scheme_Startup_Env *newenv)
 
 void scheme_init_futures_once()
 {
-  init_cpucount();
-
   REGISTER_SO(bad_multi_result_proc);
   bad_multi_result_proc = scheme_make_prim_w_arity(bad_multi_result, "bad-multi-result", 0, -1);
 }
@@ -582,6 +560,9 @@ void futures_init(void)
   Scheme_Struct_Type *stype;
   int pool_size;
 
+  if (cpucount < 1)
+    cpucount = rktio_processor_count(scheme_rktio);
+  
   fs = (Scheme_Future_State *)malloc(sizeof(Scheme_Future_State));
   memset(fs, 0, sizeof(Scheme_Future_State));
   scheme_future_state = fs;
@@ -2166,38 +2147,6 @@ Scheme_Object *touch(int argc, Scheme_Object *argv[])
   }
 }
 
-#if defined(__linux__) || defined(__QNX__)
-# include <unistd.h>
-#elif defined(OS_X)
-# include <sys/param.h>
-# include <sys/sysctl.h>
-#elif defined(DOS_FILE_SYSTEM)
-# include <windows.h>
-#endif 
-
-static void init_cpucount(void)
-/* Called in runtime thread */
-{
-#if defined(__linux__) || defined(__QNX__)
-  cpucount = sysconf(_SC_NPROCESSORS_ONLN);
-#elif defined(OS_X)
-  size_t size = sizeof(cpucount);
-
-  if (sysctlbyname("hw.ncpu", &cpucount, &size, NULL, 0))
-    cpucount = 2;
-#elif defined(DOS_FILE_SYSTEM)
-  SYSTEM_INFO sysinfo;
-  GetSystemInfo(&sysinfo);
-  cpucount = sysinfo.dwNumberOfProcessors;
-#else
-  /* Conservative guess! */
-  /* A result of 1 is not conservative, because claiming a
-     uniprocessor means that atomic cmpxchg operations are not used
-     for setting pair flags and hash codes. */
-  cpucount = 2;
-#endif
-}
-
 int scheme_is_multithreaded(int now)
 {
   if (!now)
@@ -2211,7 +2160,7 @@ int scheme_is_multithreaded(int now)
 Scheme_Object *processor_count(int argc, Scheme_Object *argv[])
 /* Called in runtime thread */
 {
-  return scheme_make_integer(cpucount);
+  return scheme_make_integer(rktio_processor_count(scheme_rktio));
 }
 
 Scheme_Object *scheme_current_future(int argc, Scheme_Object *argv[])

@@ -294,6 +294,7 @@
  (ref rktio_fd_t)
  rktio_std_fd
  (((ref rktio_t) rktio) (int which)))
+(define-function () void rktio_create_console ())
 (define-function/errno
  RKTIO_READ_ERROR
  ()
@@ -398,6 +399,21 @@
  rktio_ok_t
  rktio_set_file_size
  (((ref rktio_t) rktio) ((ref rktio_fd_t) rfd) (rktio_filesize_t sz)))
+(define-function
+ ()
+ (ref rktio_fd_transfer_t)
+ rktio_fd_detach
+ (((ref rktio_t) rktio) ((ref rktio_fd_t) rfd)))
+(define-function
+ ()
+ (ref rktio_fd_t)
+ rktio_fd_attach
+ (((ref rktio_t) rktio) ((ref rktio_fd_transfer_t) rfdt)))
+(define-function
+ ()
+ void
+ rktio_fd_close_transfer
+ (((ref rktio_fd_transfer_t) rfdt)))
 (define-function/errno
  NULL
  ()
@@ -568,6 +584,12 @@
   ((*ref char) buffer)
   (intptr_t start)
   (intptr_t end)))
+(define-function/errno
+ #f
+ ()
+ rktio_ok_t
+ rktio_udp_set_receive_buffer_size
+ (((ref rktio_t) rktio) ((ref rktio_fd_t) rfd) (int size)))
 (define-function/errno
  RKTIO_PROP_ERROR
  ()
@@ -1190,6 +1212,7 @@
  (ref char)
  rktio_wide_path_to_path
  (((ref rktio_t) rktio) ((*ref rktio_char16_t) wp)))
+(define-function () int rktio_processor_count (((ref rktio_t) rktio)))
 (define-function/errno
  #f
  ()

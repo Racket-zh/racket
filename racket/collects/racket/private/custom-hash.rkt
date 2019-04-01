@@ -168,10 +168,18 @@
 (define (wrap-key spec key)
   (define wrap (custom-spec-wrap spec))
   (define intern (custom-spec-intern spec))
-  (ephemeron-value
-   (hash-ref! intern key
-     (lambda ()
-       (make-ephemeron key (wrap key))))))
+  ;; Rely on the fact that a wrapped key is never represented as `#f`
+  (define e (hash-ref intern key #f))
+  (cond
+    [(not e)
+     (define wrapped-key (wrap key))
+     (hash-set! intern key (make-ephemeron key wrapped-key))
+     wrapped-key]
+    [else
+     ;; Supplying `key` as the third argument to `ephemeron-value`
+     ;; ensures that the  value isn't lost between the time that
+     ;; we get the ephemeron and the time that we get the value:
+     (ephemeron-value e #f key)]))
 
 (define (hash-check-key who d key)
   (define spec (custom-hash-spec d))

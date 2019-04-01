@@ -8,6 +8,7 @@
            (rename (except (chezscheme)
                            remq remove
                            sort
+                           void
                            force delay identifier?
                            output-port-buffer-mode
                            peek-char char-ready?
@@ -37,9 +38,9 @@
 			   get-thread-id
 			   threaded?
                            map for-each andmap ormap
-                           char-general-category)
+                           char-general-category
+                           make-vector make-string)
                    [make-parameter chez:make-parameter]
-                   [void chez:void]
                    [date-second chez:date-second]
                    [date-minute chez:date-minute]
                    [date-hour chez:date-hour]

@@ -1,8 +1,6 @@
 /* 
    Racket's garbage collector
-   By Adam Wick, Matthew Flatt, and Kevin Tew
-   Copyright (c) 2004-2018 PLT Design Inc.
-   Copyright (C) 2001, 2002 Matthew Flatt and Adam Wick
+   by Adam Wick, Matthew Flatt, and Kevin Tew
 */
 
 #define MZ_PRECISE_GC /* required for "sch" includes to work right */
@@ -6216,6 +6214,10 @@ void GC_dump_with_traces(int flags,
     num_immobiles++;
 
   if (!(flags & GC_DUMP_SUPPRESS_SUMMARY)) {
+    intptr_t accum_count = 0, accum_size = 0;
+#ifdef MZ_GC_BACKTRACE
+    intptr_t accum_past_count = 0, accum_past_size = 0;
+#endif
     GCPRINT(GCOUTF, "Begin Racket3m" SUMMARY_SUFFIX "\n");
 #ifdef MZ_GC_BACKTRACE
     GCPRINT(GCOUTF, "                   tag  live count  live size   past count  past size\n");
@@ -6239,6 +6241,24 @@ void GC_dump_with_traces(int flags,
                 tn, counts[i], gcWORDS_TO_BYTES(sizes[i])
 #ifdef MZ_GC_BACKTRACE
                 , alloc_counts[i], alloc_sizes[i]
+#endif
+                );
+      }
+      accum_count += counts[i];
+      accum_size += sizes[i];
+#ifdef MZ_GC_BACKTRACE
+      accum_past_count += alloc_counts[i];
+      accum_past_size += alloc_sizes[i];
+#endif
+      if (i == _scheme_values_types_) {
+        GCPRINT(GCOUTF, "  %20.20s: %10" PRIdPTR " %10" PRIdPTR
+#ifdef MZ_GC_BACKTRACE
+                "   %10" PRIdPTR " %10" PRIdPTR
+#endif
+                "\n",
+                "=BYTECODE-TOTAL=", accum_count, gcWORDS_TO_BYTES(accum_size)
+#ifdef MZ_GC_BACKTRACE
+                , accum_past_count, accum_past_size
 #endif
                 );
       }

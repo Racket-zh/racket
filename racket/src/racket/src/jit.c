@@ -1,23 +1,3 @@
-/*
-  Racket
-  Copyright (c) 2006-2018 PLT Design Inc.
-
-    This library is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Library General Public
-    License as published by the Free Software Foundation; either
-    version 2 of the License, or (at your option) any later version.
-
-    This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Library General Public License for more details.
-
-    You should have received a copy of the GNU Library General Public
-    License along with this library; if not, write to the Free
-    Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
-    Boston, MA 02110-1301 USA.
-*/
-
 #include "schpriv.h"
 #include "schmach.h"
 #include "future.h"
@@ -2352,7 +2332,6 @@ int scheme_generate(Scheme_Object *obj, mz_jit_state *jitter, int is_tail, int w
         if (multi_ok) {
           mz_pushr_p(JIT_R0);
           mz_pushr_p(JIT_R0);
-          mz_pushr_p(JIT_R0);
           mz_rs_sync();
           __START_SHORT_JUMPS__(1);
           ref = jit_bnei_p(jit_forward(), JIT_R0, SCHEME_MULTIPLE_VALUES);
@@ -4072,6 +4051,7 @@ static void on_demand_generate_lambda(Scheme_Native_Closure *nc, Scheme_Native_L
     case_lam = ((Scheme_Native_Lambda_Plus_Case *)nlam)->case_lam;
     if (case_lam->max_let_depth < max_depth)
       case_lam->max_let_depth = max_depth;
+    ((Scheme_Native_Lambda_Plus_Case *)nlam)->case_lam = NULL;
   }
 
   while (gdata.patch_depth) {
@@ -4118,6 +4098,11 @@ Scheme_Object **scheme_on_demand(Scheme_Object **rs)
 
 void scheme_force_jit_generate(Scheme_Native_Lambda *nlam)
 {
+#ifdef MZTAG_REQUIRED
+  MZ_ASSERT(SAME_TYPE(nlam->iso.so.type, scheme_rt_native_code)
+            || SAME_TYPE(nlam->iso.so.type, scheme_rt_native_code_plus_case));
+#endif
+
   if (nlam->start_code == scheme_on_demand_jit_code)
     on_demand_generate_lambda(NULL, nlam, 0, NULL, 0);
 }

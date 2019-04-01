@@ -1,38 +1,17 @@
-/*
-  Racket
-  Copyright (c) 2004-2018 PLT Design Inc.
-  Copyright (c) 1995-2001 Matthew Flatt
-
-    This library is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Library General Public
-    License as published by the Free Software Foundation; either
-    version 2 of the License, or (at your option) any later version.
-
-    This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Library General Public License for more details.
-
-    You should have received a copy of the GNU Library General Public
-    License along with this library; if not, write to the Free
-    Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
-    Boston, MA 02110-1301 USA.
-
-  libscheme
-  Copyright (c) 1994 Brent Benson
-  All rights reserved.
-*/
-
-/* This file implements the most platform-specific aspects of Racket
-   port types, which means it deals with all the messy FILE and file
-   descriptor issues, as well as implementing TCP. Also, `subprocess'
-   is implemented here, since much of the work has to do with
-   ports. */
+/* This file historically implemented the most platform-specific
+   aspects of Racket port types, which meant that it deals with all
+   the messy file descriptor issues, although the most
+   platform-specific part has moved to rktio. Also, `subprocess` is
+   implemented here. */
 
 #include "schpriv.h"
 #include "schmach.h"
 #include "schrktio.h"
 #include <errno.h>
+#ifdef OS_X
+/* needed for old gcc to define `off_t` */
+# include <unistd.h>
+#endif
 #ifndef DONT_IGNORE_PIPE_SIGNAL
 # include <signal.h>
 #endif
@@ -1615,12 +1594,9 @@ static int complete_peeked_read_via_get(Scheme_Input_Port *ip,
 					intptr_t size)
 {
   Scheme_Get_String_Fun gs;
-  int did;
   char *buf, _buf[16];
   int buf_size = 16;
   buf = _buf;
-  
-  did = 0;
 
   /* Target event is ready, so commit must succeed */
 
@@ -1652,7 +1628,6 @@ static int complete_peeked_read_via_get(Scheme_Input_Port *ip,
 
     if (ip->progress_evt)
       post_progress(ip);
-    did = 1;
   }
 
   if (size) {
@@ -1672,14 +1647,12 @@ static int complete_peeked_read_via_get(Scheme_Input_Port *ip,
         if ((cnt < size) && (ip->pending_eof == 2)) {
 	  ip->pending_eof = 1;
           size--;
-          did = 1;
         }
 	pip = (Scheme_Input_Port *)ip->peeked_read;
 	gs = pip->get_string_fun;
       } else {
         if (ip->pending_eof == 2) {
           ip->pending_eof = 1;
-          did = 1;
           if (ip->progress_evt)
             post_progress(ip);
         }
@@ -1704,15 +1677,11 @@ static int complete_peeked_read_via_get(Scheme_Input_Port *ip,
           ip->p.position += size;
         if (buf)
           do_count_lines((Scheme_Port *)ip, buf, 0, size);
-	did = 1;
       }
     }
   }
 
-  /* We used to return `did', but since an event has already been
-     selected, claim success at this point always. */
-
-  return 1 || did;
+  return 1;
 }
 
 static Scheme_Object *return_data(void *data, int argc, Scheme_Object **argv)
@@ -3322,8 +3291,6 @@ scheme_file_stream_port_p (int argc, Scheme_Object *argv[])
       return scheme_true;
     else if (SAME_OBJ(op->sub_type, fd_output_port_type))
       return scheme_true;
-  } else {
-    scheme_wrong_contract("file-stream-port?", "port?", 0, argc, argv);
   }
 
   return scheme_false;
@@ -3613,8 +3580,10 @@ Scheme_Object *scheme_terminal_port_p(int argc, Scheme_Object *argv[])
       fd_ok = 1;
     }
     else if (SAME_OBJ(ip->sub_type, fd_input_port_type)) {
-      fd = rktio_fd_system_fd(scheme_rktio, ((Scheme_FD *)ip->port_data)->fd);
-      fd_ok = 1;
+      if (rktio_fd_is_terminal(scheme_rktio, ((Scheme_FD *)ip->port_data)->fd))
+	return scheme_true;
+      else
+	return scheme_false;
     }
   } else if (SCHEME_OUTPUT_PORTP(p)) {
     Scheme_Output_Port *op;
@@ -3629,8 +3598,10 @@ Scheme_Object *scheme_terminal_port_p(int argc, Scheme_Object *argv[])
       fd_ok = 1;
     }
     else if (SAME_OBJ(op->sub_type, fd_output_port_type))  {
-      fd = rktio_fd_system_fd(scheme_rktio, ((Scheme_FD *)op->port_data)->fd);
-      fd_ok = 1;
+      if (rktio_fd_is_terminal(scheme_rktio, ((Scheme_FD *)op->port_data)->fd))
+	return scheme_true;
+      else
+	return scheme_false;
     }
   }
 
@@ -4194,6 +4165,7 @@ do_file_position(const char *who, int argc, Scheme_Object *argv[], int can_false
     return scheme_void;
   } else {
     mzlonglong pll;
+    int already_ungot = 0;
     if (f) {
       pll = BIG_OFF_T_IZE(ftello)(f);
     } else if (fd) {
@@ -4202,6 +4174,7 @@ do_file_position(const char *who, int argc, Scheme_Object *argv[], int can_false
       sz = rktio_get_file_position(scheme_rktio, fd);
       if (!sz) {
         pll = do_tell(argv[0], 0);
+        already_ungot = 1;
       } else {
         pll = *sz;
         free(sz);
@@ -4239,7 +4212,7 @@ do_file_position(const char *who, int argc, Scheme_Object *argv[], int can_false
     }
 
     /* Back up for un-gotten & peeked chars: */
-    if (SCHEME_INPUT_PORTP(argv[0])) {
+    if (!already_ungot && SCHEME_INPUT_PORTP(argv[0])) {
       Scheme_Input_Port *ip;
       ip = scheme_input_port_record(argv[0]);
       pll -= ip->ungotten_count;
@@ -6017,7 +5990,7 @@ static Scheme_Object *do_subprocess_kill(Scheme_Object *_sp, Scheme_Object *kill
   if (!ok) {
     if (can_error)
       scheme_raise_exn(MZEXN_FAIL, 
-                       "Subprocess-kill: operation failed\n"
+                       "subprocess-kill: operation failed\n"
                        "  system error: %R");
   }
 

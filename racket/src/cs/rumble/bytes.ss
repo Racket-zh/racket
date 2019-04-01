@@ -22,6 +22,9 @@
    [(n b)
     (check who exact-nonnegative-integer? n)
     (check who byte? b)
+    (unless (and (fixnum? n)
+                 (fx<? n 4096))
+      (guard-large-allocation who "byte string" n 1))
     (#2%make-bytevector n b)]))
 
 (define/who make-shared-bytes
@@ -74,6 +77,9 @@
 (define-syntax-rule (define-bytes-compare name do-name)
   (define/who name
     (case-lambda
+     [(a)
+      (check who bytes? a)
+      #t]
      [(a b)
       (check who bytes? a)
       (check who bytes? b)
@@ -81,12 +87,14 @@
      [(a b . l)
       (check who bytes? a)
       (check who bytes? b)
-      (and (bytevector=? a b)
+      (for-each (lambda (arg)
+                  (check who bytes? arg))
+                l)
+      (and (do-name a b)
            (let loop ([a b] [l l])
              (cond
               [(null? l) #t]
               [else (let ([b (car l)])
-                      (check who bytes? b)
                       (and (do-name a b)
                            (loop b (cdr l))))])))])))
 
@@ -124,13 +132,8 @@
            [(fx= va vb) (loop (fx1+ i))]
            [else #f]))]))))
 
-(define (do-bytes>=? a b) (not (do-bytes<? a b)))
-(define (do-bytes<=? a b) (not (do-bytes>? a b)))
-
 (define-bytes-compare bytes<? do-bytes<?)
-(define-bytes-compare bytes<=? do-bytes<=?)
 (define-bytes-compare bytes>? do-bytes>?)
-(define-bytes-compare bytes>=? do-bytes>=?)
 
 (define/who bytes-append
   (case-lambda 
@@ -145,14 +148,17 @@
         c))]
    [(a)
     (check who bytes? a)
-    a]
+    (#3%bytevector-copy a)]
    [() #vu8()]
    [args
     (let* ([size (let loop ([args args])
                    (cond
                     [(null? args) 0]
-                    [else (+ (bytevector-length (car args))
-                             (loop (cdr args)))]))]
+                    [else
+                     (let ([arg (car args)])
+                       (check who bytes? arg)
+                       (+ (bytevector-length arg)
+                          (loop (cdr args))))]))]
            [c (make-bytevector size)])
       (let loop ([args args] [pos 0])
         (cond

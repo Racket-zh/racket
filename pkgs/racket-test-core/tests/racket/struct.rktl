@@ -752,6 +752,23 @@
   (test 100 a-x (make-c 100 200 300 400)))
 
 ;; ------------------------------------------------------------
+;; struct->vector on non `struct?`
+
+(test #f struct? void)
+(test #f struct? (procedure-rename void 'still-void))
+(test #f struct? (procedure-reduce-arity void 1))
+(test #f struct? (cons 1 2))
+(test #f struct? (box 1))
+(test #f struct? (vector 1 2 3))
+
+(test '#(struct:procedure ...) struct->vector void)
+(test '#(struct:procedure ...) struct->vector (procedure-rename void 'still-void))
+(test '#(struct:procedure ...) struct->vector (procedure-reduce-arity void 1))
+(test '#(struct:pair ...) struct->vector (cons 1 2))
+(test '#(struct:box ...) struct->vector (box 1))
+(test '#(struct:vector ...) struct->vector (vector 1 2 3))
+
+;; ------------------------------------------------------------
 ;; Prefab
 
 (let ([v1 #s(v one)]
@@ -1105,7 +1122,7 @@
   (define thing.id! (make-struct-field-mutator thing-set! 0))
 
   (test #t struct-mutator-procedure? thing.id!)
-  (err/rt-test (thing.id!  'new-val))
+  (err/rt-test (thing.id! (make-thing 1) 'new-val))
   
   (let ([f #f])
     ;; defeat inlining to ensure that thunk is JITted:
@@ -1175,6 +1192,9 @@
 (test #t ghost? (ghost 'red 'blinky))
 (test 'blinky ghost-name (struct-copy GHOST (ghost 'red 'blinky)))
 (syntax-test #'GHOST)
+
+(syntax-test #'(struct ghost (color name) #:extra-name GHOST #:omit-define-syntaxes)
+             "cannot be combined")
 
 ;; ----------------------------------------
 ;; Check `#:authentic`:
@@ -1252,6 +1272,20 @@
   (test #f f 5)
   (test 'nope g 5 (lambda () 'nope))
   (test 'nope g struct:arity-at-least (lambda () 'nope)))
+
+;; ----------------------------------------
+;; Make sure an indirect struct constructor reports
+;; the right arity when there are more than 6 fields
+
+(let ()
+  (struct b (case-sensitive 
+             printing-style 
+             fraction-style
+             show-sharing
+             insert-newlines
+             annotations))
+  (struct a (x y) #:super struct:b)
+  (test 8 procedure-arity a))
 
 ;; ----------------------------------------
 

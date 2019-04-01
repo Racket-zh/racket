@@ -29,6 +29,11 @@
   [record-mutator (known-constant)]
   [unsafe-struct? (known-constant)]
 
+  [call-with-module-prompt (known-procedure 2)]
+
   [fork-place (known-procedure 1)]
   [start-place (known-procedure 32)]
-  [make-pthread-parameter (known-procedure 2)])
+  [make-pthread-parameter (known-procedure 2)]
+  [break-enabled-key (known-constant)]
+
+  [force-unfasl (known-procedure 2)])

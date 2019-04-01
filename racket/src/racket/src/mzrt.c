@@ -1,23 +1,3 @@
-/*
-  Racket
-  Copyright (c) 2009-2018 PLT Design Inc.
-
-    This library is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Library General Public
-    License as published by the Free Software Foundation; either
-    version 2 of the License, or (at your option) any later version.
-
-    This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Library General Public License for more details.
-
-    You should have received a copy of the GNU Library General Public
-    License along with this library; if not, write to the Free
-    Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
-    Boston, MA 02110-1301 USA.
-*/
-
 #include "schpriv.h"
 
 #ifdef MZ_USE_MZRT
@@ -66,65 +46,6 @@ int GC_pthread_join(pthread_t thread, void **retval);
 int GC_pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine)(void*), void * arg);
 int GC_pthread_detach(pthread_t thread);
 #endif
-
-void mzrt_set_user_break_handler(void (*user_break_handler)(int))
-{
-#ifdef WIN32
-#else
-  signal(SIGINT, user_break_handler);
-#endif
-}
-
-static void rungdb() {
-#ifdef WIN32
-#else
-  pid_t pid = getpid();
-  char outbuffer[100];
-  char inbuffer[10];
-
-  fprintf(stderr, "pid # %i resume(r)/gdb(d)/exit(e)?\n", pid);
-  fflush(stderr);
-
-  while(1) {
-    while(read(fileno(stdin), inbuffer, 10) <= 0){
-      if(errno != EINTR){
-        fprintf(stderr, "Error detected %i\n", errno);
-      }
-    }
-    switch(inbuffer[0]) {
-      case 'r':
-        return;
-        break;
-      case 'd':
-        snprintf(outbuffer, 100, "xterm -e gdb ./racket3m %d &", pid);
-        fprintf(stderr, "%s\n", outbuffer);
-        if(system(outbuffer)) 
-          fprintf(stderr, "system failed\n");
-        break;
-      case 'e':
-      default:
-        exit(1);
-        break;
-    }
-  }
-#endif
-}
-
-#ifndef WIN32
-static void segfault_handler(int signal_num) {
-  pid_t pid = getpid();
-  fprintf(stderr, "sig# %i pid# %i\n", signal_num, pid);
-  rungdb();
-}
-#endif
-
-void mzrt_set_segfault_debug_handler()
-{
-#ifdef WIN32
-#else
-  signal(SIGSEGV, segfault_handler);
-#endif
-}
 
 void mzrt_sleep(int seconds)
 {

@@ -1,12 +1,13 @@
 #lang scribble/doc
 @(require "mz.rkt")
 @(require (for-label syntax/modcollapse
-                     racket/stxparam))
+                     racket/stxparam
+                     racket/serialize))
 
 @(define contract-eval
    (lambda ()
      (let ([the-eval (make-base-eval)])
-       (the-eval '(require racket/contract racket/contract/parametric racket/list))
+       (the-eval '(require racket/contract racket/contract/parametric racket/list racket/math))
        the-eval)))
 
 @(define blame-object @tech{blame object})
@@ -31,6 +32,7 @@ constraints.
        racket/contract/private/guts
        racket/contract/private/prop
        racket/contract/private/blame
+       racket/contract/collapsible
        racket/contract/private/ds
        racket/contract/private/opt
        racket/contract/private/basic-opters
@@ -1173,13 +1175,29 @@ produces a contract on functions of two arguments. The first argument
 must be an integer, and the second argument must be a boolean. The
 function must produce an integer.
 
+@examples[#:eval (contract-eval) #:once
+          (define/contract (maybe-invert i b)
+            (-> integer? boolean? integer?)
+            (if b (- i) i))
+
+          (maybe-invert 1 #t)
+          (eval:error (maybe-invert #f 1))]
+
 A domain specification may include a keyword. If so, the function must
 accept corresponding (mandatory) keyword arguments, and the values for
 the keyword arguments must match the corresponding contracts. For
 example:
-@racketblock[(integer? #:x boolean? . -> . integer?)]
+@racketblock[(integer? #:invert? boolean? . -> . integer?)]
 is a contract on a function that accepts a by-position argument that
-is an integer and a @racket[#:x] argument that is a boolean.
+is an integer and an @racket[#:invert?] argument that is a boolean.
+
+@examples[#:eval (contract-eval) #:once
+          (define/contract (maybe-invert i #:invert? b)
+            (-> integer? #:invert? boolean? integer?)
+            (if b (- i) i))
+
+          (maybe-invert 1 #:invert? #t)
+          (eval:error (maybe-invert 1 #f))]
 
 As an example that uses an @racket[...], this contract:
 @racketblock[(integer? string? ... integer? . -> . any)]
@@ -1187,14 +1205,52 @@ on a function insists that the first and last arguments to
 the function must be integers (and there must be at least
 two arguments) and any other arguments must be strings.
 
+@examples[#:eval (contract-eval) #:once
+          (define/contract (string-length/between? lower-bound s1 . more-args)
+            (-> integer? string? ... integer? boolean?)
+
+            (define all-but-first-arg-backwards (reverse (cons s1 more-args)))
+            (define upper-bound (first all-but-first-arg-backwards))
+            (define strings (rest all-but-first-arg-backwards))
+            (define strings-length
+              (for/sum ([str (in-list strings)])
+                (string-length str)))
+            (<= lower-bound strings-length upper-bound))
+
+          (string-length/between? 4 "farmer" "john" 40)
+          (eval:error (string-length/between? 4 "farmer" 'john 40))
+          (eval:error (string-length/between? 4 "farmer" "john" "fourty"))]
+
 If @racket[any] is used as the last sub-form for @racket[->], no
 contract checking is performed on the result of the function, and
 thus any number of values is legal (even different numbers on different
 invocations of the function).
 
+@examples[#:eval (contract-eval) #:once
+          (define/contract (multiple-xs n x)
+            (-> natural? any/c any)
+            (apply
+             values
+             (for/list ([_ (in-range n)])
+               n)))
+
+          (multiple-xs 4 "four")]
+
 If @racket[(values range-expr ...)] is used as the last sub-form of
 @racket[->], the function must produce a result for each contract, and
 each value must match its respective contract.
+
+
+@examples[#:eval (contract-eval) #:once
+          (define/contract (multiple-xs n x)
+            (-> natural? any/c (values any/c any/c any/c))
+            (apply
+             values
+             (for/list ([_ (in-range n)])
+               n)))
+
+          (multiple-xs 3 "three")
+          (eval:error (multiple-xs 4 "four"))]
 
 @history[#:changed "6.4.0.5" @list{Added support for ellipses}]
 }
@@ -1577,14 +1633,35 @@ are checked for the appropriate wrapper.  If they have it, they are unwrapped;
 if they do not, a contract violation is signaled.
 
 @examples[#:eval (contract-eval) #:once
-(define/contract (check x y)
-  (parametric->/c [X] (boolean? X . -> . X))
-  (if (or (not x) (equal? y 'surprise))
-      'invalid
-      y))
-(check #t 'ok)
-(eval:error (check #f 'ignored))
-(check #t 'surprise)
+(define swap-ctc (parametric->/c [A B] (-> A B (values B A))))
+
+(define/contract (good-swap a b)
+  swap-ctc
+  (values b a))
+
+(good-swap 1 2)
+
+
+(define/contract (bad-swap a b)
+  swap-ctc
+  (values a b))
+
+(eval:error (bad-swap 1 2))
+
+
+(define/contract (copy-first a _b)
+  swap-ctc
+  (values a a))
+
+(eval:error (let ((v 'same-symbol)) (copy-first v v)))
+
+(define/contract (inspect-first a b)
+  swap-ctc
+  (if (integer? a)
+    (+ a b)
+    (raise-user-error "an opaque wrapped value is not an integer")))
+
+(eval:error (inspect-first 1 2))
 ]
 }
 
@@ -1763,6 +1840,11 @@ the original structure-type name does not act as a constructor.
 If the @racket[#:omit-constructor] option is present, the constructor
 is not provided.
 
+Note that if the struct is created with @racket[serializable-struct]
+or @racket[define-serializable-struct], @racket[contract-out] does not
+protect struct instances that are created via
+@racket[deserialize]. Consider using @racket[struct-guard/c] instead.
+
 The @racket[#:∃], @racket[#:exists], @racket[#:∀], and @racket[#:forall]
 clauses define new abstract contracts. The variables are bound in the
 remainder of the @racket[contract-out] form to new contracts that hide
@@ -1819,6 +1901,19 @@ A legacy shorthand for @racket[(provide (contract-out p/c-item ...))],
 except that a @racket[_contract-expr] within @racket[provide/contract]
 is evaluated at the position of the @racket[provide/contract] form
 instead of at the end of the enclosing module.}
+
+@defform[(struct-guard/c contract-expr ...)]{
+  Returns a procedure suitable to be passed as the @racket[#:guard]
+ argument to @racket[struct], @racket[serializable-struct] (and related forms).
+ The guard procedure ensures that each contract protects the
+ corresponding field values, as long as the struct is not mutated.
+ Mutations are not protected.
+
+ @examples[#:eval (contract-eval) #:once
+           (struct snake (weight hungry?)
+             #:guard (struct-guard/c real? boolean?))
+           (eval:error (snake 1.5 "yep"))]
+}
 
 @subsection{Nested Contract Boundaries}
 @defmodule*/no-declare[(racket/contract/region)]
@@ -1991,14 +2086,15 @@ The @racket[define-struct/contract] form only allows a subset of the
            pos-blame-party
            source-loc
            name-for-blame
-           no-context)
+           context-limit)
          #:grammar ([pos-blame-party (code:line)
                                      (code:line #:pos-source pos-source-expr)]
                     [source-loc (code:line)
                                 (code:line #:srcloc srcloc-expr)]
-                    [name-for-blame (code:line)
-                     (code:line #:name-for-blame blame-id)]
-                    [name-for-blame (code:line)
+                    [name-for-blame
+                     (code:line)
+                     #:name-for-blame blame-id]
+                    [context-limit (code:line)
                      (code:line #:context-limit limit-expr)])]{
   Defines @racket[id] to be @racket[orig-id], but with the contract
   @racket[contract-expr].
@@ -2112,6 +2208,10 @@ accepted by the third argument to @racket[datum->syntax].
            late-neg-proj
            (or/c #f (-> blame? (-> any/c any/c any/c)))
            #f]
+          [#:collapsible-late-neg-projection
+           collapsible-late-neg-proj
+           (or/c #f (-> blame? (values (-> any/c any/c any/c) collapsible-contract?)))
+           #f]
           [#:val-first-projection
            val-first-proj
            (or/c #f (-> blame? (-> any/c (-> any/c any/c))))
@@ -2139,6 +2239,10 @@ accepted by the third argument to @racket[datum->syntax].
           [#:late-neg-projection
            late-neg-proj
            (or/c #f (-> blame? (-> any/c any/c any/c)))
+           #f]
+          [#:collapsible-late-neg-projection
+           collapsible-late-neg-proj
+           (or/c #f (-> blame? (values (-> any/c any/c any/c) collapsible-contract?)))
            #f]
           [#:val-first-projection 
            val-first-proj
@@ -2168,6 +2272,10 @@ accepted by the third argument to @racket[datum->syntax].
            late-neg-proj
            (or/c #f (-> blame? (-> any/c any/c any/c)))
            #f]
+          [#:collapsible-late-neg-projection
+           collapsible-late-neg-proj
+           (or/c #f (-> blame? (values (-> any/c any/c any/c) collapsible-contract?)))
+           #f]
           [#:val-first-projection 
            val-first-proj
            (or/c #f (-> blame? (-> any/c (-> any/c any/c))))
@@ -2192,7 +2300,7 @@ accepted by the third argument to @racket[datum->syntax].
 )]{
 
 These functions build simple higher-order contracts, @tech{chaperone contracts},
-and @tech{flat contracts}, respectively.  They both take the same set of three
+and @tech{flat contracts}, respectively.  They all take the same set of three
 optional arguments: a name, a first-order predicate, and a blame-tracking projection.
 For @racket[make-flat-contract], see also @racket[flat-contract-with-explanation].
 
@@ -2220,6 +2328,14 @@ The @racket[late-neg-proj] argument defines the behavior of applying
  wrapped with a @tech{chaperone} or @tech{impersonator} to enforce the
  contract), or signal a contract violation using @racket[raise-blame-error].
  The default is @racket[#f].
+ 
+ The @racket[collapsible-late-neg-proj] argument takes the place of the
+ @racket[late-neg-proj] argument for contracts that support collapsing.
+ If it is supplied, this argument accepts a @tech{blame object} that is
+ missing one party. It must return two values. The first value must be
+ a function that accepts both the value that is getting the contract and
+ the name of the missing blame party, in that order. The second value should
+ be a @tech[#:key "collapsible contract"]{collapsible} representation of the contract.
  
 The projection @racket[proj] and @racket[val-first-proj] are older mechanisms for
  defining the behavior of applying the contract.  The @racket[proj] argument
@@ -2301,7 +2417,8 @@ to determine if this is a contract that accepts only @racket[list?] values.
 ]
 
 @history[#:changed "6.0.1.13" @list{Added the @racket[#:list-contract?] argument.}
-         #:changed "6.90.0.30" @list{Added the @racket[#:equivalent] argument.}]
+         #:changed "6.90.0.30" @list{Added the @racket[#:equivalent] argument.}
+         #:changed "7.1.0.10" @list{Added the @racket[#:collapsible-late-neg-projection] argument.}]
 }
 
 @defproc[(build-compound-type-name [c/s any/c] ...) any]{
@@ -2541,7 +2658,6 @@ when @racket[context] is @racket[#f].
   an error message, if @racket[blame] is passed to @racket[raise-blame-error].
 }
 
-
 @deftogether[(
 @defproc[(blame-positive [b blame?]) any/c]
 @defproc[(blame-negative [b blame?]) any/c]
@@ -2720,6 +2836,10 @@ returns @racket[#f] but @racket[value-blame] returns @racket[#f].
            late-neg-proj
            (or/c #f (-> contract? (-> blame? (-> any/c any/c any/c))))
            #f]
+          [#:collapsible-late-neg-projection
+           collapsible-late-neg-proj
+           (or/c #f (-> contract? (-> blame? (values (-> any/c any/c any/c) collapsible-contract?))))
+           #f]
           [#:val-first-projection 
            val-first-proj
            (or/c #f (-> contract? blame? (-> any/c (-> any/c any/c))))
@@ -2765,6 +2885,10 @@ returns @racket[#f] but @racket[value-blame] returns @racket[#f].
           [#:late-neg-projection
            late-neg-proj
            (or/c #f (-> contract? (-> blame? (-> any/c any/c any/c))))
+           #f]
+          [#:collapsible-late-neg-projection
+           collapsible-late-neg-proj
+           (or/c #f (-> contract? (-> blame? (values (-> any/c any/c any/c) collapsible-contract?))))
            #f]
           [#:val-first-projection 
            val-first-proj
@@ -2821,6 +2945,10 @@ returns @racket[#f] but @racket[value-blame] returns @racket[#f].
           [#:late-neg-projection
            late-neg-proj
            (or/c #f (-> contract? (-> blame? (-> any/c any/c any/c))))
+           #f]
+          [#:collapsible-late-neg-projection
+           collapsible-late-neg-proj
+           (or/c #f (-> contract? (-> blame? (values (-> any/c any/c any/c) collapsible-contract?))))
            #f]
           [#:val-first-projection 
            val-first-proj
@@ -2880,6 +3008,10 @@ a contract.  It is specified in terms of seven properties:
    defining the behavior of the contract (The @racket[get-projection]
    and @racket[val-first-proj] arguments also specify the projection,
    but using a different signature. They are here for backwards compatibility.);}
+  @item{@racket[collapsible-late-neg-proj], similar to @racket[late-neg-proj]
+   which produces a blame-tracking projection defining the behavior of the
+   contract, this function additionally specifies the
+   @tech[#:key "collapsible contract"]{collapsible} behavior of the contract;}
   @item{@racket[stronger], a predicate that determines whether this
    contract (passed in the first argument) is stronger than some other
    contract (passed in the second argument) and whose default always
@@ -2901,8 +3033,9 @@ a contract.  It is specified in terms of seven properties:
    to determine if this contract accepts only @racket[list?]s.}
 ]
 
-At least one of the @racket[late-neg-proj], @racket[get-projection],
-@racket[val-first-proj], or @racket[get-first-order] must be non-@racket[#f].
+At least one of the @racket[late-neg-proj], @racket[collapsible-late-neg-proj],
+@racket[get-projection], @racket[val-first-proj], or @racket[get-first-order]
+must be non-@racket[#f].
 
 These accessors are passed as (optional) keyword arguments to
 @racket[build-contract-property], and are applied to instances of the
@@ -2931,7 +3064,8 @@ arguments as @racket[build-contract-property].  The differences are:
          #:changed "6.1.1.4"
          @list{Allow @racket[generate] to return @racket[contract-random-generate-fail].}
          #:changed "6.90.0.30"
-         @list{Added the @racket[#:equivalent] argument.}]
+         @list{Added the @racket[#:equivalent] argument.}
+         #:changed "7.1.0.10" @list{Added the @racket[#:collapsible-late-neg-projection] argument.}]
 }
 
 @deftogether[(
@@ -3335,6 +3469,8 @@ and fix at some point, but have no concrete plans currently.
 Key used by continuation marks that are present during contract checking.
 The value of these marks are the @|blame-objects| that correspond to the contract
 currently being checked.
+
+@history[#:added "6.4.0.4"]
 }
 
 @defproc[(contract-custom-write-property-proc [c contract?] 
@@ -3441,6 +3577,172 @@ add contracts to libraries that @racketmodname[racket/contract]
 uses to implement some of the more sophisticated
 parts of the contract system.
 
+@; ------------------------------------------------------------------------
+
+@section[#:tag "collapsible"]{Collapsible Contracts}
+@defmodule*/no-declare[(racket/contract/collapsible)]
+@declare-exporting-ctc[racket/contract/collapsible]
+@history[#:added "7.1.0.10"]
+
+@deftech{Collapsible contracts} are an optimization in the contract system designed
+to avoid a particular pathological build up of contract wrappers on higher-order
+values. The @racket[vectorof], @racket[vector/c], and @racket[->] contract
+combinators support collapsing for vector contracts and function contracts for
+functions returning a single value.
+
+Intuitively, a collapsible contract is a tree structure.
+The @racketlink[collapsible-ho/c]{tree nodes} represent higher-order contracts
+ (e.g., @racket[->]) and the @racketlink[collapsible-leaf/c]{tree leaves}
+ represent sequences of flat contracts.
+Two trees can collapse into one tree via the @racket[merge] procedure,
+ which removes unnecessary flat contracts from the leaves.
+
+For more information on the motivation and design of collapsible contracts,
+ see @cite["Feltey18"].
+For the theoretical foundations, see @cite["Greenberg15"].
+
+@bold{Warning}: the features described in this section are experimental
+and may not be sufficient to implement new collapsible contracts. Implementing
+new collapsible contracts requires the use of unsafe chaperones and impersonators
+which are only supported for vector and procedure values. This documentation exists
+primarily to allow future maintenance of the @racket[racket/contract/collapsible]
+library. @bold{End Warning}
+
+@defproc[(get/build-collapsible-late-neg-projection [c contract?])
+         (-> blame? (values (-> any/c any/c any/c) collapsible-contract?))]{
+ Returns the @racket[_collapsible-late-neg] projection for @racket[c].
+
+ If @racket[c] does not have a @racket[_collapsible-late-neg] projection,
+ then this function uses the original projection for it and constructs a leaf
+ as its collapsible representation.
+}
+
+@defthing[collapsible-contract-continuation-mark-key continuation-mark-key?]{
+Key used by continuation marks that are present during collapsible contract checking.
+The value of these marks are @racket[#t] if the current contract is collapsible.
+}
+
+@defform[(with-collapsible-contract-continuation-mark body ...)]{
+Inserts a continuation mark that informs the contract profiler that the current contract
+is collapsible.
+}
+
+@defthing[prop:collapsible-contract struct-type-property?]{
+ Structures implementing this property are usable as collapsible contracts. The value
+ associated with this property should be constructed by calling
+ @racket[build-collapsible-contract-property].
+}
+
+@defproc[(collapsible-contract? [v any/c]) boolean?]{
+A predicate recognizing structures with the @racket[prop:collapsible-contract] property.}
+
+@defproc[(merge [new-cc collapsible-contract?]
+                [new-neg any/c]
+                [old-cc collapsible-contract?]
+                [old-neg any/c])
+         collapsible-contract?]{
+ Combine two collapsible contracts into a single collapsible contract.
+ The @racket[new-neg] and @racket[old-neg] arguments are expected to be
+ blame parties similar to those passed to a @tech{late neg projection}.
+}
+
+@defproc[(collapsible-guard [cc collapsible-contract?]
+                            [val any/c]
+                            [neg-party any/c])
+         any/c]{
+ Similar to a @tech{late neg projection}, this function guards the value @racket[val]
+ with the collapsible contract @racket[cc].
+}
+
+@defproc[(collapsible-contract-property? [v any/c]) boolean?]{
+ This predicate indicates that a value can be used as the property for
+ @racket[prop:collapsible-contract].
+}
+
+@defproc[(build-collapsible-contract-property
+          [#:try-merge try-merge
+           (or/c #f
+                 (-> collapsible-contract?
+                     any/c
+                     collapsible-contract?
+                     any/c
+                     (or/c #f collapsible-contract?)))
+           #f]
+          [#:collapsible-guard collapsible-guard
+           (-> collapsible-contract? any/c any/c any/c)
+           (λ (cc v neg)
+             (error
+              "internal error: contract does not support `collapsible-guard`" cc))])
+         collapsible-contract-property?]{
+ Constructs a @deftech{collapsible contract property} from a merging function and a guard.
+ The @racket[try-merge] argument is similar to @racket[merge], but may return @racket[#f] instead
+ of a collapsible contract and may be specialized to a particular collapsible contract.
+ The @racket[collapsible-guard] argument should be specialized to the particular collapsible
+ contract being implemented.
+}
+
+@defstruct*[collapsible-ho/c
+            ([latest-blame blame?]
+             [missing-party any/c]
+             [latest-ctc contract?])]{
+ A common parent structure for collapsible contracts for higher-order values.
+ The @racket[latest-blame] field holds the blame object for the most recent
+ contract attached. Similarly, the @racket[missing-party] field holds the latest
+ missing party passed to the contract. The @racket[latest-contract] field stores
+ the most recent contract attached to the value.
+}
+
+@defstruct*[collapsible-leaf/c
+            ([proj-list (listof (-> any/c any/c any/c))]
+             [contract-list (listof contract?)]
+             [blame-list (listof blame?)]
+             [missing-party-list (listof any/c)])]{
+ A structure representing the leaf nodes of a collapsible contract. The @racket[proj-list]
+ field holds a list of partially applied @tech{late neg projections}. The @racket[contract-list],
+ @racket[blame-list], and @racket[missing-party-list] fields hold a list of contracts,
+ blame objects, and blame missing parties respectively.
+}
+
+@deftogether[(@defthing[impersonator-prop:collapsible impersonator-property?]
+              @defproc[(has-impersonator-prop:collapsible? [v any/c]) boolean?]
+              @defproc[(get-impersonator-prop:collapsible [v any/c]) collapsible-property?])]{
+ An impersonator property (and its accessors) that should be attached to chaperoned or impersonated
+ values that are guarded with a collapsible contract.
+}
+
+@defstruct*[collapsible-property ([c-c collapsible-contract?]
+                                  [neg-party any/c]
+                                  [ref (or/c #f impersonator?)])]{
+ The parent struct of properties that should be attached to chaperones or impersonators
+ of values protected with a collapsible contract. The @racket[c-c] field stores the collapsible
+ contract that is or will in the future be attached to the the value. The @racket[neg-party] field
+ stores the latest missing blame party passed to the contract on the value. The @racket[ref] field
+ is mutable and stores a reference to the chaperone or impersonator to which this property is
+ attached. This is necessary to determine whether an unknown chaperone has been attached to a value
+ after it has been protected by a collapsible contract.
+}
+@defstruct*[(collapsible-count-property collapsible-property)
+            ([count natural-number/c]
+             [prev (or/c collapsible-count-property? any/c)])]{
+ This property is associated with the @racket[impersonator-prop:collapsible] property before
+ the value completely enters the collapsible mode. These properties keep track of the number of
+ contracts on a value in the @racket[_count] field, and hold a reference to the previous
+ @deftech{count property} in the @racket[prev] field or the original value without a contract. This
+ allows the contract system to traverse the chain of attached contracts and merge them into a single
+ collapsible contract to protect the original value.
+}
+@defstruct*[(collapsible-wrapper-property collapsible-property)
+            ([checking-wrapper impersonator?])]{
+ This property is used when a value is guarded by a collapsible contract. The
+ @racket[checking-wrapper] field holds a chaperone or impersonator that dispatches to the
+ collapsible contract stored in this property to perform any necessary contract checks. When
+ the value receives another contract and merging happens, the checking wrapper will remain the
+ same even though the specific collapsible contract attached to the value may change.
+}
+
+@; ------------------------------------------------------------------------
+
+
 @section{Legacy Contracts}
 
 @defproc[(make-proj-contract [name any/c]
@@ -3507,7 +3809,7 @@ parts of the contract system.
                                    [fuel 5 exact-nonnegative-integer?]
                                    [fail (or/c #f (-> any) (-> boolean? any)) #f])
          any/c]{
-Attempts to randomly generate a value which will match the contract. The fuel
+Attempts to randomly generate a value which will match the contract. The @racket[_fuel]
 argument limits how hard the generator tries to generate a value matching the
 contract and is a rough limit of the size of the resulting value.
 
@@ -3527,13 +3829,24 @@ ended up returning @racket[contract-random-generate-fail].
 
 }
 
-@defproc[(contract-exercise [val any/c] ...+) void?]{
+@defproc[(contract-exercise [#:fuel fuel exact-nonnegative-integer? 10]
+                            [#:shuffle? shuffle? any/c #f]
+                            [val any/c] ...+) void?]{
   Attempts to get the @racket[val]s to break their contracts (if any).
                   
   Uses @racket[value-contract] to determine if any of the @racket[val]s have a
   contract and, for those that do, uses information about the contract's shape
   to poke and prod at the value. For example, if the value is function, it will
   use the contract to tell it what arguments to supply to the value.
+
+  The argument @racket[_fuel] determines how hard @racket[contract-exercise]
+  tries to break the values. It controls both the number of exercise iterations
+  and the size of the intermediate values generated during the exercises.
+
+  The argument @racket[_shuffle?] controls whether @racket[contract-exercise]
+  randomizes the exercise order or not. If @racket[_shuffle?] is not @racket[#f],
+  @racket[contract-exercise] would shuffle the order of the contracts in each
+  exercise iteration.
 
  @examples[#:eval (contract-eval) #:once
            (define/contract (returns-false x)
@@ -3548,14 +3861,26 @@ ended up returning @racket[contract-random-generate-fail].
              (code:comment "we're supposed to return a boolean")
              (f 11))
            (eval:error (contract-exercise calls-its-argument-with-eleven))]
+
+ @history[#:changed "7.0.0.18" @elem{Added the @racket[shuffle?] optional argument.}]
 }
 
 @defproc[(contract-random-generate/choose [c contract?] [fuel exact-nonnegative-integer?])
          (or/c #f (-> c))]{
   This function is like @racket[contract-random-generate], but it is intended to
   be used with combinators that generate values based on sub-contracts
-  they have. It cannot be called, except during contract
-  generation. It will never fail, but it might escape back to an enclosing
+  they have. It must be called when @racket[contract-random-generate]
+  (and @racket[contract-exercise]) creates the generators.
+  To be more precise, @racket[contract-random-generate/choose] is available
+  only for the @racket[_generate] and @racket[_exercise] arguments in
+  @racket[build-contract-property], @racket[build-chaperone-contract-property]
+  or @racket[build-flat-contract-property] and only during the dynamic
+  extent of the call to @racket[_generate] (and @racket[_exercise]).
+  That is, after it receives the @racket[_c] and @racket[_fuel] arguments
+  and before it returns the thunk (or the exerciser).
+
+  @racket[contract-random-generate/choose] will never fail,
+  but it might escape back to an enclosing
   call or to the original call to @racket[contract-random-generate].
  
   It chooses one of several possible generation strategies, and thus it may not

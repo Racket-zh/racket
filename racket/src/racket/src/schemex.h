@@ -1,17 +1,3 @@
-/*
-  Racket
-  Copyright (c) 2004-2018 PLT Design Inc.
-  Copyright (c) 1995-2001 Matthew Flatt
-  All rights reserved.
-
-  Please see the full copyright in the documentation.
-
-  Originally based on:
-  libscheme
-  Copyright (c) 1994 Brent Benson
-  All rights reserved.
-*/
-
 typedef struct {
 /*========================================================================*/
 /*                       setjmpup (continuations)                         */
@@ -152,8 +138,8 @@ Scheme_On_Atomic_Timeout_Proc (*scheme_set_on_atomic_timeout)(Scheme_On_Atomic_T
 /*========================================================================*/
 /*                              error handling                            */
 /*========================================================================*/
-void (*scheme_signal_error)(const char *msg, ...);
-void (*scheme_raise_exn)(int exnid, ...);
+void (*scheme_signal_error)(const char *msg, ...) NORETURN;
+void (*scheme_raise_exn)(int exnid, ...) NORETURN;
 void (*scheme_warning)(char *msg, ...);
 void (*scheme_raise)(Scheme_Object *exn);
 int (*scheme_log_level_p)(Scheme_Logger *logger, int level);
@@ -173,32 +159,17 @@ void (*scheme_log_warning)(char *buffer);
 void (*scheme_glib_log_message)(const char *log_domain, int log_level, const char *message, void *user_data);
 void *(*scheme_glib_log_message_test)(char *str);
 void (*scheme_out_of_memory_abort)();
-void (*scheme_wrong_count)(const char *name, int minc, int maxc,
-				  int argc, Scheme_Object **argv);
-void (*scheme_wrong_count_m)(const char *name, int minc, int maxc,
-				    int argc, Scheme_Object **argv,
-				    int is_method);
-void (*scheme_case_lambda_wrong_count)(const char *name, int argc,
-					      Scheme_Object **argv, int is_method, int count, ...);
-void (*scheme_wrong_type)(const char *name, const char *expected,
-				 int which, int argc,
-				 Scheme_Object **argv);
-void (*scheme_wrong_contract)(const char *name, const char *expected,
-                                     int which, int argc,
-                                     Scheme_Object **argv);
-void (*scheme_wrong_field_type)(Scheme_Object *c_name,
-				       const char *expected,
-				       Scheme_Object *o);
-void (*scheme_wrong_field_contract)(Scheme_Object *c_name,
-                                           const char *expected,
-                                           Scheme_Object *o);
-void (*scheme_arg_mismatch)(const char *name, const char *msg, Scheme_Object *o);
-void (*scheme_contract_error)(const char *name, const char *msg, ...);
-void (*scheme_wrong_return_arity)(const char *where,
-					 int expected, int got,
-					 Scheme_Object **argv,
-					 const char *context_detail, ...);
-void (*scheme_unbound_global)(Scheme_Bucket *b);
+void (*scheme_wrong_count)(const char *name, int minc, int maxc, int argc, Scheme_Object **argv) NORETURN;
+void (*scheme_wrong_count_m)(const char *name, int minc, int maxc, int argc, Scheme_Object **argv, int is_method) NORETURN;
+void (*scheme_case_lambda_wrong_count)(const char *name, int argc, Scheme_Object **argv, int is_method, int count, ...) NORETURN;
+void (*scheme_wrong_type)(const char *name, const char *expected, int which, int argc, Scheme_Object **argv) NORETURN;
+void (*scheme_wrong_contract)(const char *name, const char *expected, int which, int argc, Scheme_Object **argv) NORETURN;
+void (*scheme_wrong_field_type)(Scheme_Object *c_name, const char *expected, Scheme_Object *o) NORETURN;
+void (*scheme_wrong_field_contract)(Scheme_Object *c_name, const char *expected, Scheme_Object *o) NORETURN;
+void (*scheme_arg_mismatch)(const char *name, const char *msg, Scheme_Object *o) NORETURN;
+void (*scheme_contract_error)(const char *name, const char *msg, ...) NORETURN;
+void (*scheme_wrong_return_arity)(const char *where, int expected, int got, Scheme_Object **argv, const char *context_detail, ...) NORETURN;
+void (*scheme_unbound_global)(Scheme_Bucket *b) NORETURN;
 Scheme_Object *(*scheme_dynamic_wind)(void (*pre)(void *),
 					     Scheme_Object *(* volatile act)(void *),
 					     void (* volatile post)(void *),
@@ -845,6 +816,10 @@ Scheme_Bucket *(*scheme_module_bucket)(Scheme_Object *mod, Scheme_Object *var, i
 Scheme_Object *(*scheme_builtin_value)(const char *name); /* convenience */
 void (*scheme_set_global_bucket)(char *proc, Scheme_Bucket *var, Scheme_Object *val,
                                         int set_undef);
+Scheme_Env *(*scheme_primitive_module)(Scheme_Object *name, Scheme_Env *for_env);
+void (*scheme_finish_primitive_module)(Scheme_Env *env);
+void (*scheme_set_primitive_module_phaseless)(Scheme_Env *env, int phaseless);
+void (*scheme_protect_primitive_provide)(Scheme_Env *env, Scheme_Object *name);
 Scheme_Object *(*scheme_make_modidx)(Scheme_Object *path,
                                             Scheme_Object *base,
                                             Scheme_Object *resolved);

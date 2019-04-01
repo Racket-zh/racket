@@ -4,16 +4,15 @@
          racket/list
          racket/match
          racket/path
-         racket/fasl
          racket/serialize
          "private/cc-struct.rkt"
          setup/parallel-do
          racket/class
-         racket/future
          compiler/find-exe
          racket/place
          syntax/modresolve
          "private/format-error.rkt"
+         "private/time.rkt"
          (for-syntax racket/base))
 
 
@@ -39,14 +38,17 @@
         (hash-set!
          locks fn
          (match v
+           ['done
+            (wrkr/send wrkr (list 'compiled))
+            'done]
            [(list w waitlst) 
-            (hash-set! depends wrkr (cons w fn))
-            (let ([fns (check-cycles wrkr (hash) null)])
+            (let ([fns (check-cycles w (hasheq wrkr #t) null)])
               (cond
                [fns
                 (wrkr/send wrkr (list 'cycle (cons fn fns)))
                 v]
                [else
+                (hash-set! depends wrkr (cons w fn))
                 (list w (append waitlst (list wrkr)))]))]
            [else
             (wrkr/send wrkr (list 'locked))
@@ -58,7 +60,7 @@
           (for ([x (second (hash-ref locks fn))])
             (hash-remove! depends x)
             (wrkr/send x (list 'compiled)))
-          (hash-remove! locks fn)]))
+          (hash-set! locks fn 'done)]))
     (define/private (check-cycles w seen fns)
       (cond
        [(hash-ref seen w #f) fns]
@@ -110,7 +112,7 @@
                   (append-error cc "making" #f out err "output"))
                 ;(when last (printer (current-output-port) "made" "~a" (cc-name cc)))
                 #t]
-              [else (eprintf "Failed trying to match:\n~e\n" result-type)]))]
+              [else (eprintf "Failed trying to match:\n~s\n" result-type)]))]
         [(list _ (list 'ADD fn))
          ;; Currently ignoring queued individual files
          #f]
@@ -261,9 +263,10 @@
       (define/public (get-results) results)
       (super-new)))
 
-(define (parallel-build work-queue worker-count)
+(define (parallel-build work-queue worker-count #:use-places? use-places?)
   (define do-log-forwarding (log-level? pb-logger 'info 'setup/parallel-build))
   (parallel-do
+   #:use-places? use-places?
     worker-count
     (lambda (workerid) (list workerid do-log-forwarding))
     work-queue
@@ -316,14 +319,19 @@
                                                        (format-error x #:long? #f #:to-string? #t))))])
            (parameterize ([parallel-lock-client lock-client]
                           [compile-context-preservation-enabled (member 'disable-inlining options )]
-                          [manager-trace-handler
-                            (lambda (p)
-                              (when (member 'very-verbose options)
-                                (printf "  ~a\n" p)))]
+                          [manager-trace-handler (if (member 'very-verbose options)
+                                                     (lambda (p) (printf "  ~a\n" p))
+                                                     (manager-trace-handler))]
                           [current-namespace (make-base-empty-namespace)]
                           [current-directory (if (memq 'set-directory options)
                                                  dir
                                                  (current-directory))]
+                          [current-compile-target-machine (if (memq 'compile-any options)
+                                                              #f
+                                                              (current-compile-target-machine))]
+                          [managed-recompile-only (if (memq 'recompile-only options)
+                                                      #t
+                                                      (managed-recompile-only))]
                           [current-load-relative-directory dir]
                           [current-input-port (open-input-string "")]
                           [current-output-port out-str-port]
@@ -350,19 +358,26 @@
 (define (parallel-compile-files list-of-files
                                 #:worker-count [worker-count (processor-count)]
                                 #:handler [handler void]
-                                #:options [options '()])
+                                #:options [options '()]
+                                #:use-places? [use-places? #t])
   (unless (exact-positive-integer? worker-count)
     (raise-argument-error 'parallel-compile-files "exact-positive-integer?" worker-count))
   (unless (and (list? list-of-files) (andmap path-string? list-of-files))
     (raise-argument-error 'parallel-compile-files "(listof path-string?)" list-of-files))
   (unless (and (procedure? handler) (procedure-arity-includes? handler 6))
     (raise-argument-error 'parallel-compile-files "(procedure-arity-includes/c 6)" handler))
-  (parallel-build (make-object file-list-queue% list-of-files handler options) worker-count))
+  (parallel-build (make-object file-list-queue% list-of-files handler options) worker-count
+                  #:use-places? use-places?))
 
-(define (parallel-compile worker-count setup-fprintf append-error collects-tree)
-  (setup-fprintf (current-output-port) #f "--- parallel build using ~a jobs ---" worker-count)
-  (define collects-queue (make-object collects-queue% collects-tree setup-fprintf append-error '(set-directory)))
-  (parallel-build collects-queue worker-count))
+(define (parallel-compile worker-count setup-fprintf append-error collects-tree
+                          #:options [options '()]
+                          #:use-places? [use-places? #t])
+  (setup-fprintf (current-output-port) #f (add-time
+                                           (format "--- parallel build using ~a jobs ---" worker-count)))
+  (define collects-queue (make-object collects-queue% collects-tree setup-fprintf append-error
+                                      (append options '(set-directory))))
+  (parallel-build collects-queue worker-count
+                  #:use-places? use-places?))
 
 (define (start-prefetch-thread send/add)
   (define pf (make-log-receiver (current-logger) 'info 'module-prefetch))
@@ -397,9 +412,14 @@
                  (define path
                    (let loop ([prev prev])
                      (cond
-                      [(submod? prev)
-                       (loop (cadr prev))]
-                      [else (resolve-module-path prev (build-path dir "dummy.rkt"))])))
+                       [(submod? prev)
+                        (define base (cadr prev))
+                        (cond
+                          [(or (equal? base "..") (equal? base "."))
+                           #f]
+                          [else
+                           (loop (cadr prev))])]
+                       [else (resolve-module-path prev (build-path dir "dummy.rkt"))])))
                  (when (path? path)
                    (send/add path)))
                p])))

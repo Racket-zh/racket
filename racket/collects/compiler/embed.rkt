@@ -405,7 +405,10 @@
                   (extract-last (unix-style-split s)))])
     (let ([p (build-path collects-dest
                          (apply build-path dir)
-                         "compiled"
+                         (let ([l (use-compiled-file-paths)])
+                           (if (pair? l)
+                               (car l)
+                               "compiled"))
                          (path-add-extension file #".zo"))])
       (let-values ([(base name dir?) (split-path p)])
         (make-directory* base)
@@ -484,7 +487,10 @@
         (let ([code (or ready-code
                         (get-module-code just-filename
                                          #:submodule-path submod-path
-                                         "compiled"
+                                         (let ([l (use-compiled-file-paths)])
+                                           (if (pair? l)
+                                               (car l)
+                                               "compiled"))
                                          compiler
                                          (if on-extension
                                              (lambda (f l?)
@@ -537,24 +543,28 @@
                             ;; check for run-time paths by visiting the module in an
                             ;; expand-time namespace:
                             (parameterize ([current-namespace expand-namespace])
-                              (define no-submodule-code
-                                ;; Strip away submodules to avoid re-declaring them:
-                                (module-compiled-submodules 
-                                 (module-compiled-submodules code #f null)
-                                 #t
-                                 null))
-                              (eval no-submodule-code)
                               (let ([module-path
                                      (if (path? module-path)
                                          (path->complete-path module-path)
                                          module-path)])
+                                (unless (module-declared? module-path)
+                                  (parameterize ([current-module-declare-name
+                                                  (module-path-index-resolve (module-path-index-join
+                                                                              module-path
+                                                                              #f))])
+                                    (eval code)))
                                 (define e (expand `(,#'module m racket/kernel
                                                      (#%require (only ,module-path)
                                                                 racket/runtime-path)
                                                      (runtime-paths ,module-path))))
                                 (syntax-case e (quote)
                                   [(_ m mz (#%mb req (quote (spec ...))))
-                                   (syntax->datum #'(spec ...))]
+                                   (for/list ([p (in-list (syntax->datum #'(spec ...)))])
+                                     ;; Strip variable reference from 'module specs, because
+                                     ;; we don't need them and they retain the namespace:
+                                     (if (and (pair? p) (eq? 'module (car p)))
+                                         (list 'module (cadr p))
+                                         p))]
                                   [_else (error 'create-empbedding-executable
                                                 "expansion mismatch when getting external paths: ~e"
                                                 (syntax->datum e))]))))]
@@ -1514,6 +1524,7 @@
                                            dest
                                            mred?))))))
 	(define embed-dlls? (and (eq? 'windows (cross-system-type))
+                                 (eq? 'racket (cross-system-type 'vm))
 				 (let ([m (assq 'embed-dlls? aux)])
 				   (and m (cdr m)))))
 	(define embedded-dlls-box (and embed-dlls? (box null)))

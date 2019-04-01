@@ -21,6 +21,10 @@
 (define strip-binary-compile-info (make-parameter #t))
 
 (define (check-strip-compatible mode pkg dir error)
+  (unless (path-string? dir)
+    (raise-argument-error 'check-strip-compatible "path-string?" dir))
+  (check-directory-exists 'check-strip-compatible "" dir)
+
   (define i (get-info/full dir))
   (define raw-status (and i
                           (i 'package-content-state (lambda () #f))))
@@ -58,6 +62,13 @@
 
 (define (generate-stripped-directory mode dir dest-dir
                                      #:check-status? [check-status? #t])
+  (unless (path-string? dir)
+    (raise-argument-error 'generate-stripped-directory "path-string?" dir))
+  (unless (path-string? dest-dir)
+    (raise-argument-error 'generate-stripped-directory "path-string?" dest-dir))
+  (check-directory-exists 'generate-stripped-directory "source " dir)
+  (check-directory-exists 'generate-stripped-directory "destination " dest-dir)
+
   (define drop-keep-ns (make-base-namespace))
   (define (add-drop+keeps dir base drops keeps)
     (define get-info (get-info/full dir #:namespace drop-keep-ns))
@@ -213,18 +224,20 @@
        [(and keep? (file-exists? old-p))
         (when drop-all-by-default?
           (make-directory* (path-only new-p)))
-        (copy-file old-p new-p)
-        (file-or-directory-modify-seconds
-         new-p
-         (file-or-directory-modify-seconds old-p))
+        (unless (equal? old-p new-p)
+          (copy-file old-p new-p)
+          (file-or-directory-modify-seconds
+           new-p
+           (file-or-directory-modify-seconds old-p)))
         (fixup new-p path base level)]
        [(directory-exists? old-p)
         (define-values (new-drops new-keeps)
           (add-drop+keeps old-p p drops keeps))
-        (when keep?
-          (if drop-all-by-default?
-              (make-directory* new-p)
-              (make-directory new-p)))
+        (unless (equal? old-p new-p)
+          (when keep?
+            (if drop-all-by-default?
+                (make-directory* new-p)
+                (make-directory new-p))))
         (explore p
                  (directory-list old-p)
                  new-drops
@@ -232,6 +245,7 @@
                  (not keep?)
                  next-level)]
        [keep? (error 'strip "file or directory disappeared?")]
+       [(equal? old-p new-p) (delete-directory/files old-p)]
        [else (void)])))
 
   (define-values (drops keeps)
@@ -469,3 +483,14 @@
     (for ([f (in-list (directory-list dest-dir #:build? #t))])
       (when (directory-exists? f)
         (create-info-as-needed mode f 'collection)))]))
+
+(define (check-directory-exists who which dir)
+  (unless (directory-exists? dir)
+    (raise (exn:fail:filesystem
+            (format (string-append
+                     "~a: destination ~adirectory does not exist\n"
+                     "  path: ~a")
+                    who
+                    which
+                    dir)
+            (current-continuation-marks)))))

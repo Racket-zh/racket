@@ -68,11 +68,14 @@
           * name       ; #f or identifier to name the expression
           observer   ; logging observer (for the macro debugger)
           for-serializable? ; accumulate submodules as serializable?
+          to-correlated-linklet? ; compile to machine-independent linklets?
+          normalize-locals? ; forget original local-variable names
           should-not-encounter-macros?)) ; #t when "expanding" to parse
 
 (define (make-expand-context ns
                              #:to-parsed? [to-parsed? #f]
                              #:for-serializable? [for-serializable? #f]
+                             #:to-correlated-linklet? [to-correlated-linklet? #f]
                              #:observer [observer #f])
   (define root-ctx (namespace-get-root-expand-ctx ns))
   (expand-context (root-expand-context-self-mpi root-ctx)
@@ -114,6 +117,8 @@
                   #f   ; name
                   observer
                   for-serializable?
+                  to-correlated-linklet?
+                  to-correlated-linklet? ; normalize-locals?
                   #f))
 
 (define (copy-root-expand-context ctx root-ctx)
@@ -210,7 +215,7 @@
 ;; Register a callback for `raise-syntax-error`
 (set-current-previously-unbound!
  (lambda ()
-   (define ctx (current-expand-context))
+   (define ctx (force (current-expand-context)))
    (define phase-to-ids (and ctx (expand-context-need-eventually-defined ctx)))
    (and phase-to-ids
         (hash-ref phase-to-ids (expand-context-phase ctx) null))))

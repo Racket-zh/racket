@@ -1,17 +1,4 @@
 /*
-  Racket
-  Copyright (c) 2004-2018 PLT Design Inc.
-  Copyright (c) 1995-2001 Matthew Flatt
-  All rights reserved.
-
-  Please see the full copyright in the documentation.
-
-  libscheme
-  Copyright (c) 1994 Brent Benson
-  All rights reserved.
-*/
-
-/*
    Racket prototypes and declarations for internal consumption.
 */
 
@@ -339,6 +326,7 @@ void scheme_init_struct_wait();
 void scheme_init_list(Scheme_Startup_Env *env);
 void scheme_init_unsafe_list(Scheme_Startup_Env *env);
 void scheme_init_unsafe_hash(Scheme_Startup_Env *env);
+void scheme_init_hash_tree(void);
 void scheme_init_stx(Scheme_Startup_Env *env);
 void scheme_init_module(Scheme_Startup_Env *env);
 void scheme_init_module_path_table(void);
@@ -558,6 +546,7 @@ extern Scheme_Object *scheme_list_p_proc;
 extern Scheme_Object *scheme_list_proc;
 extern Scheme_Object *scheme_list_star_proc;
 extern Scheme_Object *scheme_list_pair_p_proc;
+extern Scheme_Object *scheme_append_proc;
 extern Scheme_Object *scheme_vector_proc;
 extern Scheme_Object *scheme_vector_p_proc;
 extern Scheme_Object *scheme_vector_length_proc;
@@ -578,6 +567,9 @@ extern Scheme_Object *scheme_unsafe_struct_ref_proc;
 extern Scheme_Object *scheme_unsafe_struct_star_ref_proc;
 extern Scheme_Object *scheme_unsafe_struct_set_proc;
 extern Scheme_Object *scheme_unsafe_struct_star_set_proc;
+extern Scheme_Object *scheme_hash_proc;
+extern Scheme_Object *scheme_hasheq_proc;
+extern Scheme_Object *scheme_hasheqv_proc;
 extern Scheme_Object *scheme_hash_ref_proc;
 extern Scheme_Object *scheme_box_p_proc;
 extern Scheme_Object *scheme_box_proc;
@@ -2614,7 +2606,7 @@ void scheme_internal_print(Scheme_Object *obj, Scheme_Object *port, Scheme_Objec
 
 Scheme_Object *scheme_read_language(Scheme_Object *port, int nonlang_ok);
 
-Scheme_Object *scheme_read_compiled(Scheme_Object *port);
+Scheme_Object *scheme_read_linklet_bundle_hash(Scheme_Object *port);
 
 #define _scheme_eval_linked_expr(obj) scheme_do_eval(obj,-1,NULL,1)
 #define _scheme_eval_linked_expr_multi(obj) scheme_do_eval(obj,-1,NULL,-1)
@@ -3356,9 +3348,6 @@ void scheme_set_current_namespace_as_env(Scheme_Env *env);
 
 Scheme_Bucket_Table *scheme_clone_toplevel(Scheme_Bucket_Table *ht, Scheme_Env *home);
 
-Scheme_Object *scheme_string_to_symbol_path(char *_s, intptr_t len);
-char *scheme_symbol_path_to_string(Scheme_Object *p, intptr_t *_len);
-
 /*========================================================================*/
 /*                         errors and exceptions                          */
 /*========================================================================*/
@@ -3422,6 +3411,9 @@ const char *scheme_hostname_error(int err);
 int scheme_byte_string_has_null(Scheme_Object *o);
 int scheme_any_string_has_null(Scheme_Object *o);
 #define CHAR_STRING_W_NO_NULLS "string-no-nuls?"
+
+int scheme_string_compare(Scheme_Object *s1, Scheme_Object *s2);
+int scheme_bytes_compare(Scheme_Object *s1, Scheme_Object *s2);
 
 Scheme_Object *scheme_do_exit(int argc, Scheme_Object *argv[]);
 
@@ -3815,6 +3807,7 @@ Scheme_Object *scheme_copy_list(Scheme_Object *l);
 Scheme_Object *scheme_append_strings(Scheme_Object *s1, Scheme_Object *s2);
 
 Scheme_Object *scheme_unsafe_make_location(void);
+Scheme_Object *scheme_unsafe_make_srcloc(int argc, Scheme_Object **argv);
 
 void scheme_reset_hash_table(Scheme_Hash_Table *ht, int *history);
 
@@ -3969,7 +3962,7 @@ typedef struct Scheme_Place_Object {
 typedef struct Scheme_Serialized_File_FD {
   Scheme_Object so;
   Scheme_Object *name;
-  struct rktio_fd_t *fd;
+  struct rktio_fd_transfer_t *fdt;
   intptr_t type;
   char flush_mode;
 } Scheme_Serialized_File_FD;
@@ -3977,7 +3970,7 @@ typedef struct Scheme_Serialized_File_FD {
 typedef struct Scheme_Serialized_Socket_FD {
   Scheme_Object so;
   Scheme_Object *name;
-  struct rktio_fd_t *fd;
+  struct rktio_fd_transfer_t *fdt;
   intptr_t type;
 } Scheme_Serialized_Socket_FD;
 
@@ -4027,5 +4020,7 @@ int scheme_is_syntax(Scheme_Object *v);
 HANDLE scheme_dll_load_library(const char *s, const wchar_t *ws, int *_mode);
 void *scheme_dll_get_proc_address(HANDLE m, const char *name, int dll_mode);
 #endif
+
+Scheme_Object *scheme_compile_target_check(int argc, Scheme_Object **argv);
 
 #endif /* __mzscheme_private__ */

@@ -641,6 +641,12 @@
 			  (begin
 			    (test (integer->char (vector-ref code-points 0))
 				  bytes-utf-8-ref s 0)
+			    (test (integer->char (vector-ref code-points 0))
+				  bytes-utf-8-ref s 0 #f)
+			    (test (integer->char (vector-ref code-points 0))
+				  bytes-utf-8-ref s 0 #f 0)
+			    (test (integer->char (vector-ref code-points 0))
+				  bytes-utf-8-ref s 0 #f 0 (bytes-length s))
 			    (test (integer->char (vector-ref code-points
 							     (sub1 (vector-length code-points))))
 				  bytes-utf-8-ref s (sub1 (vector-length code-points)))
@@ -1117,6 +1123,19 @@
 (test '("\u1F39") regexp-match #rx"[^\u1F79-\u3F79]" "\u1F39")
 (test '("\u1F78") regexp-match #rx"[^\u1F79-\u3F79]" "\u1F78")
 
+(test '("\u3BB") regexp-match #px"\\D" "\u3BB")
+(test '("\u3BB") regexp-match #px"[\\D]" "\u3BB")
+(test '("a") regexp-match #px"[\\D]" "a")
+(test #f regexp-match #px"\\D" "0")
+(test #f regexp-match #px"\\D" "9")
+(test '("\u3BB") regexp-match #px"\\S" "\u3BB")
+(test '("\u3BB") regexp-match #px"[\\S]" "\u3BB")
+(test '("a") regexp-match #px"\\S" "a")
+(test #f regexp-match #px"\\S" " ")
+(test '("\u3BB") regexp-match #px"\\W" "\u3BB")
+(test '("\u3BB") regexp-match #px"[\\W]" "\u3BB")
+(test '("+") regexp-match #px"\\W" "+")
+(test #f regexp-match #px"\\W" "a")
 
 ;; Regexps that shouldn't parse:
 (err/rt-test (regexp "[a--b\u1F78]") exn:fail?)
@@ -1586,11 +1605,12 @@
 	    (char-symbolic? c))))
  null)
 
-;; Letter, digit, punct, and symbol are distinct
+;; Letter+numeric, punct, and symbol are mostly distinct
 (check-all-unicode
  (lambda (c)
-   (> (+ (if (char-alphabetic? c) 1 0)
-	 (if (char-numeric? c) 1 0)
+   (> (+ (if (or (char-alphabetic? c)
+                 (char-numeric? c))
+             1 0)
 	 (if (char-punctuation? c) 1 0)
 	 (if (char-symbolic? c) 
              (if (or (char<=? #\u24B6 c #\u24E9)

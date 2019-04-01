@@ -76,8 +76,10 @@
              [val-rhss null]   ; accumulated binding right-hand sides
              [track-stxs null] ; accumulated syntax for tracking
              [trans-idss null] ; accumulated `define-syntaxes` identifiers that have disappeared
+             [trans-stxs null] ; accumulated `define-syntaxes` forms for tracking
              [stx-clauses null] ; accumulated syntax-binding clauses, used when observing
-             [dups (make-check-no-duplicate-table)])
+             [dups (make-check-no-duplicate-table)]
+             [just-saw-define-syntaxes? #f]) ; make sure that `define-syntaxes` isn't last
     (cond
      [(null? bodys)
       ;; Partial expansion is complete, so finish by rewriting to
@@ -88,8 +90,10 @@
                              #:original-bodys init-bodys
                              #:source s
                              #:stratified? stratified?
+                             #:just-saw-define-syntaxes? just-saw-define-syntaxes?
                              #:name name
-                             #:disappeared-transformer-bindings (reverse trans-idss))]
+                             #:disappeared-transformer-bindings (reverse trans-idss)
+                             #:disappeared-transformer-forms (reverse trans-stxs))]
      [else
       (define rest-bodys (cdr bodys))
       (log-expand body-ctx 'next)
@@ -114,8 +118,10 @@
                val-rhss
                track-stxs
                trans-idss
+               trans-stxs
                stx-clauses
-               dups)]
+               dups
+               just-saw-define-syntaxes?)]
         [(define-values)
          ;; Found a variable definition; add bindings, extend the
          ;; environment, and continue
@@ -125,8 +131,11 @@
          (log-expand body-ctx 'rename-one (datum->syntax #f (list ids (m 'rhs))))
          (define new-dups (check-no-duplicate-ids ids phase exp-body dups))
          (define counter (root-expand-context-counter ctx))
+         (define local-sym (and (expand-context-normalize-locals? ctx) 'loc))
          (define keys (for/list ([id (in-list ids)])
-                        (add-local-binding! id phase counter #:frame-id frame-id #:in exp-body)))
+                        (add-local-binding! id phase counter
+                                            #:frame-id frame-id #:in exp-body
+                                            #:local-sym local-sym)))
          (define extended-env (for/fold ([env (expand-context-env body-ctx)]) ([key (in-list keys)]
                                                                                [id (in-list ids)])
                                 (env-extend env key (local-variable id))))
@@ -152,13 +161,16 @@
                                (for/list ([done-body (in-list done-bodys)])
                                  (no-binds done-body s phase))
                                val-rhss))
-               (cons exp-body (append
-                               (for/list ([done-body (in-list done-bodys)])
-                                 #f)
-                               track-stxs))
+               (cons (keep-as-needed body-ctx exp-body #:for-track? #t)
+                     (append
+                      (for/list ([done-body (in-list done-bodys)])
+                        #f)
+                      track-stxs))
                trans-idss
+               trans-stxs
                stx-clauses
-               new-dups)]
+               new-dups
+               #f)]
         [(define-syntaxes)
          ;; Found a macro definition; add bindings, evaluate the
          ;; compile-time right-hand side, install the compile-time
@@ -169,8 +181,11 @@
          (log-expand body-ctx 'rename-one (datum->syntax #f (list ids (m 'rhs))))
          (define new-dups (check-no-duplicate-ids ids phase exp-body dups))
          (define counter (root-expand-context-counter ctx))
+         (define local-sym (and (expand-context-normalize-locals? ctx) 'mac))
          (define keys (for/list ([id (in-list ids)])
-                        (add-local-binding! id phase counter #:frame-id frame-id #:in exp-body)))
+                        (add-local-binding! id phase counter
+                                            #:frame-id frame-id #:in exp-body
+                                            #:local-sym local-sym)))
          (log-expand body-ctx 'prepare-env)
          (prepare-next-phase-namespace ctx)
          (log-expand body-ctx 'enter-bind)
@@ -191,8 +206,10 @@
                val-rhss
                track-stxs
                (cons ids trans-idss)
+               (cons (keep-as-needed body-ctx exp-body #:for-track? #t) trans-stxs)
                (cons (datum->syntax #f (list ids (m 'rhs)) exp-body) stx-clauses)
-               new-dups)]
+               new-dups
+               #t)]
         [else
          (cond
           [stratified?
@@ -209,8 +226,10 @@
                  val-rhss
                  track-stxs
                  trans-idss
+                 trans-stxs
                  stx-clauses
-                 dups)]
+                 dups
+                 #f)]
           [else
            ;; Found an expression; accumulate it and continue
            (loop body-ctx
@@ -221,8 +240,10 @@
                  val-rhss
                  track-stxs
                  trans-idss
+                 trans-stxs
                  stx-clauses
-                 dups)])])])))
+                 dups
+                 #f)])])])))
 
 ;; Partial expansion is complete, so assumble the result as a
 ;; `letrec-values` form and continue expanding
@@ -232,12 +253,17 @@
                                #:original-bodys init-bodys
                                #:source s
                                #:stratified? stratified?
+                               #:just-saw-define-syntaxes? just-saw-define-syntaxes?
                                #:name name
-                               #:disappeared-transformer-bindings disappeared-transformer-bindings)
-  (when (null? done-bodys)
+                               #:disappeared-transformer-bindings disappeared-transformer-bindings
+                               #:disappeared-transformer-forms disappeared-transformer-forms)
+  (when (or (null? done-bodys)
+            just-saw-define-syntaxes?)
     (raise-syntax-error (string->symbol "begin (possibly implicit)")
                         "no expression after a sequence of internal definitions"
-                        (datum->syntax #f (cons 'begin init-bodys) s)))
+                        (datum->syntax #f (cons 'begin init-bodys) s)
+                        #f
+                        init-bodys))
   ;; As we finish expanding, we're no longer in a definition context
   (define finish-ctx (struct*-copy expand-context (accumulate-def-ctx-scopes body-ctx def-ctx-scopes)
                                    [context 'expression]
@@ -287,9 +313,12 @@
     (log-expand* body-ctx ['exit-prim exp-s] ['return exp-s])
     (if (expand-context-to-parsed? body-ctx)
         (list exp-s)
-        (list (attach-disappeared-transformer-bindings
-               exp-s
-               disappeared-transformer-bindings)))]))
+        (let ([exp-s (attach-disappeared-transformer-bindings
+                      exp-s
+                      disappeared-transformer-bindings)])
+          (list (for/fold ([exp-s exp-s]) ([form (in-list disappeared-transformer-forms)]
+                                           #:when form)
+                  (syntax-track-origin exp-s form)))))]))
 
 ;; Roughly, create a `letrec-values` for for the given ids, right-hand sides, and
 ;; body. While expanding right-hand sides, though, keep track of whether any
