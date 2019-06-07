@@ -919,7 +919,7 @@ MZ_EXTERN char *scheme_expand_filename(char* filename, int ilen, const char *err
 MZ_EXTERN char *scheme_expand_user_filename(char* filename, int ilen, const char *errorin, int *ex, int guards);
 MZ_EXTERN char *scheme_expand_string_filename(Scheme_Object *f, const char *errorin, int *ex, int guards);
 
-MZ_EXTERN char *scheme_os_getcwd(char *buf, int buflen, int *actlen, int noexn);
+MZ_EXTERN char *scheme_os_getcwd(char *buf, size_t buflen, int *actlen, int noexn);
 MZ_EXTERN int scheme_os_setcwd(char *buf, int noexn);
 MZ_EXTERN char *scheme_getdrive(void);
 
@@ -1142,7 +1142,7 @@ MZ_EXTERN Scheme_Object *scheme_make_ephemeron(Scheme_Object *key, Scheme_Object
 MZ_EXTERN Scheme_Object *scheme_ephemeron_value(Scheme_Object *o);
 MZ_EXTERN Scheme_Object *scheme_ephemeron_key(Scheme_Object *o);
 
-MZ_EXTERN Scheme_Object *scheme_make_stubborn_will_executor();
+MZ_EXTERN Scheme_Object *scheme_make_late_will_executor();
 
 MZ_EXTERN Scheme_Object *scheme_load(const char *file);
 MZ_EXTERN Scheme_Object *scheme_load_extension(const char *filename, Scheme_Env *env);

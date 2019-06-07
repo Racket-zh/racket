@@ -8,7 +8,8 @@
          "../schemify/schemify.rkt"
          "../schemify/serialize.rkt"
          "../schemify/known.rkt"
-         "../schemify/lift.rkt")
+         "../schemify/lift.rkt"
+         "../schemify/wrap.rkt")
 
 (define skip-export? #f)
 (define for-cify? #f)
@@ -126,7 +127,7 @@
       (time
        (schemify-body bodys/constants-lifted prim-knowns #hasheq() #hasheq() for-cify? unsafe-mode? #t)))
     (printf "Lift...\n")
-    ;; Lift functions to aviod closure creation:
+    ;; Lift functions to avoid closure creation:
     (define lifted-body
       (time
        (lift-in-schemified-body body)))
@@ -208,6 +209,13 @@
 ;; in general.
 (define (rename-functions e)
   (cond
+    [(wrap? e)
+     (cond
+       [(wrap-property e 'inferred-name)
+        => (lambda (name)
+             `(#%name ,name ,(rename-functions (unwrap e))))]
+       [else
+        (rename-functions (unwrap e))])]
     [(not (pair? e)) e]
     [else
      (define (begin-name e)

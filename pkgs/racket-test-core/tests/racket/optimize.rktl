@@ -610,6 +610,17 @@
 (test-comp '(lambda (z) (let ([f (lambda (i) (car i))]) (f z)) #t)
            '(lambda (z) (let ([f (lambda (i) (car i))]) (f z)) (pair? z)))
 
+(test-comp '(lambda (z) (fl+ z z))
+           '(lambda (z) (real->double-flonum (fl+ z z))))
+(test-comp '(lambda (z) (fl+ z z))
+           '(lambda (z) (exact->inexact (fl+ z z))))
+(test-comp '(lambda (z) (real->double-flonum z))
+           '(lambda (z) (real->double-flonum (real->double-flonum z))))
+(test-comp '(lambda (z) (unsafe-fx->fl (fx+ z z)))
+           '(lambda (z) (real->double-flonum (fx+ z z))))
+(test-comp '(lambda (z) (unsafe-fx->fl (fx+ z z)))
+           '(lambda (z) (exact->inexact (fx+ z z))))
+
 ; Test that the optimizer infers correctly the type of all the arguments
 ; and the type of the return value. Use #f in case the type is unknown.
 (define (test-arg-types proc/args? val? 
@@ -6427,6 +6438,33 @@
   (provide result))
 
 (test #f dynamic-require ''optimizes-to-with-immediate-continuation-mark-in-noninlined 'result)
+
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(module regression-for-letrec-check-non-app-tracking racket/base
+  (require racket/match)
+
+  (define (j-emit j)
+    (struct :ec (x defs) #:transparent)
+    (struct :def (x e) #:transparent)
+    (define (e->c^ j) '(1 2 3))
+    (define (es->c^ js)
+      (define n (gensym))
+      (match js
+        ['() (e->c '(:con 'void))]
+        [(cons a d)
+         (match-define (:ec ax adefs) (e->c a))
+         (match-define (:ec dx ddefs) (es->c d))
+         (:ec n (list* (:def n 9)
+                       (append ddefs adefs)))]))
+
+    (define ((make-e->c e->c^) j)
+      (match-define (and r (:ec n defs)) (e->c^ j))
+      r)
+    (define e->c (make-e->c e->c^))
+    (define es->c (make-e->c es->c^))
+
+    6))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

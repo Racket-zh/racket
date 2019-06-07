@@ -63,12 +63,15 @@
 
          make-semaphore
          semaphore-post
+         semaphore-post-all
          semaphore-wait
          semaphore-try-wait?
          semaphore?
          semaphore-wait/enable-break
          call-with-semaphore
          call-with-semaphore/enable-break
+         unsafe-semaphore-post
+         unsafe-semaphore-wait
 
          semaphore-peek-evt
          semaphore-peek-evt?
@@ -119,7 +122,7 @@
          custodian-shut-down?
 
          make-will-executor
-         make-stubborn-will-executor
+         make-late-will-executor
          will-executor?
          will-register
          will-try-execute

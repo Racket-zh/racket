@@ -2,6 +2,14 @@
 ;; Check to make we're using a build of Chez Scheme
 ;; that has all the features we need.
 
+(let-values ([(maj min sub) (scheme-version-number)])
+  (unless (or (> maj 9)
+              (and (= maj 9)
+                   (or (> min 5)
+                       (and (= min 5)
+                            (>= sub 3)))))
+    (error 'compile-file "need a newer Chez Scheme")))
+
 (define (check-ok what thunk)
   (unless (guard (x [else #f]) (thunk))
     (error 'compile-file
@@ -47,6 +55,7 @@
                 (error 'eq-on-flonum "no")))))
 (check-defined 'procedure-known-single-valued?)
 (check-defined 'compress-format)
+(check-defined '#%$record-cas!)
 
 ;; ----------------------------------------
 

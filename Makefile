@@ -136,6 +136,7 @@ win32-as-is:
 PREFIX = 
 
 CONFIG_PREFIX_ARGS = --prefix="$(PREFIX)" --enable-macprefix
+UNIXSTYLE_CONFIG_qq = MORE_CONFIGURE_ARGS="$(MORE_CONFIGURE_ARGS) $(CONFIG_PREFIX_ARGS)" CONFIG_IN_PLACE_ARGS=""
 UNIX_CATALOG = build/local/catalog
 UNIX_RACO_ARGS = $(JOB_OPTIONS) --catalog $(UNIX_CATALOG) --auto -i
 UNIX_BASE_ARGS = SELF_FLAGS_qq="" SKIP_DESTDIR_FIX="skip"
@@ -150,7 +151,7 @@ cpus-unix-style:
 
 plain-unix-style:
 	if [ "$(PREFIX)" = "" ] ; then $(MAKE) error-need-prefix ; fi
-	$(MAKE) base MORE_CONFIGURE_ARGS="$(MORE_CONFIGURE_ARGS) $(CONFIG_PREFIX_ARGS)" $(UNIX_BASE_ARGS)
+	$(MAKE) base $(UNIXSTYLE_CONFIG_qq) $(UNIX_BASE_ARGS)
 	$(MAKE) set-src-catalog
 	$(MAKE) local-catalog
 	"$(DESTDIR)$(PREFIX)/bin/raco" pkg install $(UNIX_RACO_ARGS) $(REQUIRED_PKGS) $(PKGS)
@@ -227,10 +228,11 @@ win32-remove-setup-dlls:
 	IF EXIST racket\lib\ssleay32.dll cmd /c del racket\lib\ssleay32.dll
 
 SRC_MAKEFILE_CONFIG = configure
+CONFIG_IN_PLACE_ARGS = --enable-origtree
 
 racket/src/build/Makefile: racket/src/$(SRC_MAKEFILE_CONFIG) racket/src/Makefile.in
 	mkdir -p racket/src/build
-	cd racket/src/build; ../$(SRC_MAKEFILE_CONFIG) $(CONFIGURE_ARGS_qq) $(MORE_CONFIGURE_ARGS)
+	cd racket/src/build; ../$(SRC_MAKEFILE_CONFIG) $(CONFIGURE_ARGS_qq) $(MORE_CONFIGURE_ARGS) $(CONFIG_IN_PLACE_ARGS)
 
 MORE_CROSS_CONFIGURE_ARGS =
 
@@ -241,7 +243,7 @@ native-for-cross:
 	cd racket/src/build/cross; $(MAKE) reconfigure MORE_CONFIGURE_ARGS="$(MORE_CROSS_CONFIGURE_ARGS)"
 	cd racket/src/build/cross/racket; $(MAKE)
 
-racket/src/build/cross/Makefile: racket/src/configure racket/src/Makefile.in
+racket/src/build/cross/Makefile: racket/src/configure racket/src/cfg-racket racket/src/Makefile.in
 	cd racket/src/build/cross; ../../configure $(MORE_CROSS_CONFIGURE_ARGS)
 
 # ------------------------------------------------------------
@@ -263,9 +265,9 @@ RACKET_BUILT_FOR_CS = racket/src/build/racket/racket3m
 # Chez Scheme from `CHEZ_SCHEME_REPO`
 SCHEME_SRC = 
 DEFAULT_SCHEME_SRC = racket/src/build/ChezScheme
-MAKE_BUILD_SCHEME = y
+MAKE_BUILD_SCHEME = checkout
 
-CHEZ_SCHEME_REPO = https://github.com/mflatt/ChezScheme
+CHEZ_SCHEME_REPO = https://github.com/racket/ChezScheme
 GIT_CLONE_ARGS_qq = -q --depth 1
 
 # Altenative source for Chez Scheme repo, normally set by
@@ -336,7 +338,7 @@ ABS_SCHEME_SRC = `$(RACKET) $(ABS_BOOT) racket/src/cs/absify.rkt $(SCHEME_SRC)`
 cs-after-racket-with-racket:
 	if [ "$(SCHEME_SRC)" = "" ] ; \
 	  then $(MAKE) cs-after-racket-with-racket-and-scheme-src RACKET="$(RACKET)" SCHEME_SRC="$(DEFAULT_SCHEME_SRC)" ; \
-	  else $(MAKE) cs-after-racket-with-racket-and-scheme-src RACKET="$(RACKET)" SCHEME_SRC="$(SCHEME_SRC)" MAKE_BUILD_SCHEME=n ; fi
+	  else $(MAKE) cs-after-racket-with-racket-and-scheme-src RACKET="$(RACKET)" SCHEME_SRC="$(SCHEME_SRC)" MAKE_BUILD_SCHEME=none ; fi
 
 cs-after-racket-with-racket-and-scheme-src:
 	$(RACKET) -O "info@compiler/cm" $(ABS_BOOT) racket/src/cs/absify.rkt just-to-compile-absify
@@ -360,11 +362,11 @@ nothing-after-base:
 
 racket/src/build/cs/c/Makefile: racket/src/cs/c/configure racket/src/cs/c/Makefile.in racket/src/cfg-cs
 	mkdir -p cd racket/src/build/cs/c
-	cd racket/src/build/cs/c; ../../../cs/c/configure $(CONFIGURE_ARGS_qq) $(MORE_CONFIGURE_ARGS)
+	cd racket/src/build/cs/c; ../../../cs/c/configure $(CONFIGURE_ARGS_qq) $(MORE_CONFIGURE_ARGS) $(CONFIG_IN_PLACE_ARGS)
 	$(MAKE) $(CS_CONFIG_TARGET)
 
 run-cfg-cs:
-	cd racket/src/build; ../cfg-cs $(CONFIGURE_ARGS_qq) $(MORE_CONFIGURE_ARGS)
+	cd racket/src/build; ../cfg-cs $(CONFIGURE_ARGS_qq) $(MORE_CONFIGURE_ARGS) $(CONFIG_IN_PLACE_ARGS)
 
 no-cfg-cs:
 	echo done
@@ -448,9 +450,9 @@ win32-just-cs:
 native-cs-for-cross:
 	if [ "$(SCHEME_SRC)" = "" ] ; \
          then $(MAKE) scheme-src-then-cross ; \
-         else $(MAKE) native-cs-for-cross-after-scheme-src MAKE_BUILD_SCHEME=n ; fi
+         else $(MAKE) native-cs-for-cross-after-scheme-src MAKE_BUILD_SCHEME=none ; fi
 
-CS_CROSS_SCHEME_CONFIG = SCHEME_SRC="`pwd`/racket/src/build/cross/ChezScheme" MAKE_BUILD_SCHEME=y
+CS_CROSS_SCHEME_CONFIG = SCHEME_SRC="`pwd`/racket/src/build/cross/ChezScheme" MAKE_BUILD_SCHEME=checkout
 
 scheme-src-then-cross:
 	$(MAKE) scheme-src BUILD_FOR_FOR_SCHEME_DIR="racket/src/build/cross/"
@@ -629,6 +631,9 @@ SVR_CAT = http://$(SVR_PRT)/$(SERVER_CATALOG_PATH)
 # To configure package installations on the server:
 SERVER_PKG_INSTALL_OPTIONS =
 
+# To configure package installations for the installer:
+PKG_INSTALL_OPTIONS =
+
 # Catch problems due to malformed distribution-build packages
 RECOMPILE_OPTIONS = --recompile-only
 
@@ -642,7 +647,7 @@ X_AUTO_OPTIONS = --skip-installed --deps search-auto --pkgs $(JOB_OPTIONS)
 USER_AUTO_OPTIONS = --scope user $(X_AUTO_OPTIONS)
 SOURCE_USER_AUTO_q = --catalog build/catalog-copy $(USER_AUTO_OPTIONS) $(SERVER_PKG_INSTALL_OPTIONS)
 REMOTE_USER_AUTO = --catalog $(SVR_CAT) $(USER_AUTO_OPTIONS)
-REMOTE_INST_AUTO = --catalog $(SVR_CAT) --scope installation $(X_AUTO_OPTIONS) $(RECOMPILE_OPTIONS)
+REMOTE_INST_AUTO = --catalog $(SVR_CAT) --scope installation $(X_AUTO_OPTIONS) $(PKG_INSTALL_OPTIONS) $(RECOMPILE_OPTIONS)
 CONFIG_MODE_q = "$(CONFIG)" "$(CONFIG_MODE)"
 BUNDLE_CONFIG = bundle/racket/etc/config.rktd
 BUNDLE_RACO_FLAGS = -G bundle/racket/etc -X bundle/racket/collects -C -A bundle/user -l raco
@@ -658,7 +663,7 @@ PKGS_CATALOG = -U -G build/config -l- pkg/dirs-catalog --link --check-metadata -
 PKGS_CONFIG = -U -G build/config racket/src/pkgs-config.rkt
 
 pkgs-catalog:
-	$(RUN_RACKET) $(PKGS_CATALOG) racket/share/pkgs-catalog pkgs racket/src/expander
+	$(RUN_RACKET) $(PKGS_CATALOG) racket/share/pkgs-catalog pkgs racket/src/expander racket/src/cs/bootstrap
 	$(RUN_RACKET) $(PKGS_CONFIG) "$(DEFAULT_SRC_CATALOG)" "$(SRC_CATALOG)"
 	$(RUN_RACKET) racket/src/pkgs-check.rkt racket/share/pkgs-catalog
 
@@ -754,9 +759,12 @@ origin-collects:
 	$(USER_RACKET) -l distro-build/pack-collects
 
 # Now that we've built packages from local sources, create "built"
-# versions of the packages from the installation into "build/user":
+# versions of the packages from the installation into "build/user";
+# set `PACK_BUILT_OPTIONS` `--mode <mode>` to force all packages to
+# a specific mode, but the default infers `built` or `binary`
+PACK_BUILT_OPTIONS =
 built-catalog:
-	$(USER_RACKET) -l distro-build/pack-built build/pkgs.rktd
+	$(USER_RACKET) -l- distro-build/pack-built $(PACK_BUILT_OPTIONS) build/pkgs.rktd
 
 # Run a catalog server to provide pre-built packages, as well
 # as the copy of the server's "collects" tree:
@@ -826,6 +834,10 @@ win32-client:
 	$(MAKE) win32-bundle-from-server $(COPY_ARGS)
 	$(WIN32_RACKET) -l distro-build/set-config $(SET_BUNDLE_CONFIG_q)
 	$(MAKE) win32-installer-from-bundle $(COPY_ARGS)
+
+# Sensible when creating a source distribution with built packages:
+client-compile-any:
+	$(MAKE) client $(ANY_COMPILE_MACHINE_ARGS_qq) BUNDLE_FROM_SERVER_TARGET=bundle-cross-from-server
 
 # Install the "distro-build" package from the server into
 # a local build:

@@ -4,7 +4,8 @@
          "../common/internal-error.rkt"
          "../host/thread.rkt"
          "../host/rktio.rkt"
-         "lock.rkt")
+         "lock.rkt"
+         "ltps.rkt")
 
 ;; Create an extended sandman that can sleep with a rktio poll set. An
 ;; external-event set might be naturally implemented with a poll set,
@@ -21,6 +22,7 @@
          sandman-poll-ctx-add-poll-set-adder!
          sandman-poll-ctx-merge-timeout
          sandman-set-background-sleep!
+         sandman-poll-ctx-poll?
          sandman-place-init!)
 
 (struct exts (timeout-at fd-adders))
@@ -45,6 +47,8 @@
                                  (schedule-info-current-exts sched-info)
                                  timeout))))
 
+(define (sandman-poll-ctx-poll? poll-ctx)
+  (poll-ctx-poll? poll-ctx))
 
 (define-place-local background-sleep #f)
 (define-place-local background-sleep-fd #f)
@@ -82,14 +86,14 @@
        (unless (and sleep-secs (sleep-secs . <= . 0.0))
          (cond
            [background-sleep
-            (rktio_start_sleep rktio (or sleep-secs 0.0) ps rktio_NULL background-sleep-fd)
+            (rktio_start_sleep rktio (or sleep-secs 0.0) ps shared-ltps background-sleep-fd)
             (background-sleep)
             (rktio_end_sleep rktio)]
            [else
             (rktio_sleep rktio
                          (or sleep-secs 0.0)
                          ps
-                         rktio_NULL)]))
+                         shared-ltps)]))
        (rktio_poll_set_forget rktio ps))
      
      ;; poll
@@ -102,6 +106,7 @@
                                         [(eqv? v RKTIO_OS_SIGNAL_TERM) 'terminate]
                                         [else 'break]))
            (check-signals)))
+       (fd-semaphore-poll-ready)
        ((sandman-do-poll timeout-sandman) mode wakeup))
 
      ;; get-wakeup

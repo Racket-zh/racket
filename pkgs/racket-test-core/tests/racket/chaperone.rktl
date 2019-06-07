@@ -149,6 +149,28 @@
     (test #f unbox b)
     (test #f unbox b2)))
 
+;; check that `set-box!` uses the result of chaperone/impersonator
+(as-chaperone-or-impersonator
+ ([chaperone-box impersonate-box])
+ (let ([b (box (vector 1))])
+   (let ([b2 (chaperone-box b 
+                            (lambda (b v) v)
+                            (lambda (b v)
+                              (chaperone-vector
+                               v
+                               (lambda (b i v) (if (eq? v 'ok)
+                                                   v
+                                                   (error "oops")))
+                               (lambda (b i v) #f))))])
+     (test (void) 'ok-vector-set! (set-box! b2 (vector 8)))
+     (let ([inner (unbox b2)])
+       (test 'oops 'bad-vector-ref-from-box
+             (with-handlers ([exn:fail? (lambda (exn) 'oops)])
+               (vector-ref inner 0))))
+     (test (void) 'ok-set-box! (set-box! b2 (vector 'ok)))
+     (let ([inner (unbox b2)])
+       (test 'ok 'ok-vector-ref-from-box (vector-ref inner 0))))))
+
 ;; ----------------------------------------
 
 (test #t chaperone?/impersonator (chaperone-vector (vector 1 2 3) (lambda (b i v) v) (lambda (b i v) v)))
@@ -196,6 +218,15 @@
    (test (void) vector-set! b2 1 'fine)
    (test 'fine vector-ref b 1)))
 
+;; impersonator-of does not imply chaperone-of
+(let ()
+  (define vec1 (vector 1 2 3))
+  (define vec2 (impersonate-vector vec1 (lambda (v i x) x) (lambda (v i x) x)))
+  (test #t impersonator-of? vec2 vec1)
+  (test #f chaperone-of? vec2 vec1)
+  (test #f impersonator-of? vec1 vec2)
+  (test #f chaperone-of? vec1 vec2))
+
 ;; test chaperone-of checks in a chaperone:
 (let ([b (vector 0)])
   (let ([b2 (chaperone-vector b 
@@ -207,6 +238,28 @@
     (test (void) 'ok-vector-set! (vector-set! b2 0 #f))
     (test #f vector-ref b2 0)
     (err/rt-test (vector-set! b2 0 0))))
+
+;; check that `vector-set!` uses the result of chaperone/impersonator
+(as-chaperone-or-impersonator
+ ([chaperone-vector impersonate-vector])
+ (let ([b (vector (vector 1))])
+   (let ([b2 (chaperone-vector b 
+                               (lambda (b i v) v)
+                               (lambda (b i v)
+                                 (chaperone-vector
+                                  v
+                                  (lambda (b i v) (if (eq? v 'ok)
+                                                      v
+                                                      (error "oops")))
+                                  (lambda (b i v) #f))))])
+     (test (void) 'ok-vector-set! (vector-set! b2 0 (vector 8)))
+     (let ([inner (vector-ref b2 0)])
+       (test 'oops 'bad-vector-ref
+             (with-handlers ([exn:fail? (lambda (exn) 'oops)])
+               (vector-ref inner 0))))
+     (test (void) 'ok-vector-set! (vector-set! b2 0 (vector 'ok)))
+     (let ([inner (vector-ref b2 0)])
+       (test 'ok 'ok-vector-ref (vector-ref inner 0))))))
 
 ;; no impersonator-of checks in a impersonator:
 (let ([b (vector 0)])
@@ -2070,6 +2123,38 @@
      (test #f chaperone-of? (hash-set h3 2 sub1) h3)))
  (list #hash() #hasheq() #hasheqv()))
 
+;; Make sure that multiple chaperone/impersonator layers
+;; are allowed by `chaperone-of?` and `impersonator-of?`
+(as-chaperone-or-impersonator
+ ([chaperone-hash impersonate-hash]
+  [chaperone-of? impersonator-of?])
+ (define ht (make-hash))
+
+ (define (chaperone ht)
+   (chaperone-hash
+    ht
+    (lambda (ht k) (values k (lambda (hc k v) v)))
+    (lambda (ht k v)
+      (values (chaperone-hash
+               k
+               (lambda (ht k) (values k (lambda (hc k v) v)))
+               (lambda (ht k v) (values k v))
+               (lambda (ht k) k)
+               (lambda (ht k) k))
+              v))
+    (lambda (ht k) k)
+    (lambda (ht k) k)))
+
+ (define ht0 (chaperone ht))
+ (define ht1 (chaperone ht0))
+
+ (test #t chaperone-of? ht1 ht)
+ (test #t chaperone-of? ht1 ht0)
+ (test #f chaperone-of? ht ht1)
+ (test #f chaperone-of? ht0 ht1)
+ (hash-set! ht1 (make-hash '((a . b))) 'ok)
+ (test 'ok hash-ref ht1 (make-hash '((a . b)))))
+
 ;; ----------------------------------------
 
 (as-chaperone-or-impersonator
@@ -2680,6 +2765,8 @@
     (test #t impersonator-of? (make-a #f 2) a1)
     (test #t chaperone-of? (make-a #f 2) a1)
     (test #t impersonator-of? (make-a a1 3) a1)
+    (test #f impersonator-of? a1 (make-a a1 2))
+    (test #f chaperone-of? a1 (make-a a1 2))
     (test #t impersonator-of? (make-a-more a1 3 8) a1)
     (test #f chaperone-of? (make-a a1 3) a1)
     (test #t equal? (make-a a1 3) a1)
@@ -3419,6 +3506,39 @@
   (test #t procedure? group-rows*)
   (test #t has-impersonator-prop:contracted? group-rows*)
   (test 1 'apply (group-rows* #:group 10)))
+
+;; ----------------------------------------
+;; Check that position-consuming accessor and mutators work with
+;; `impersonate-struct`.
+
+(let ()
+  (define-values (struct:s make-s s? s-ref s-set!)
+    (make-struct-type 's #f 1 0 #f))
+
+  (define a-s (make-s 0))
+  
+  (test '(0)
+        s-ref
+        (impersonate-struct
+         a-s
+         s-ref
+         (lambda (k v) (list v))
+         s-set!
+         (lambda (k v) (list v)))
+        0)
+  
+  (test (void)
+        s-set!
+        (impersonate-struct
+         a-s
+         s-ref
+         (lambda (k v) (list v))
+         s-set!
+         (lambda (k v) (list v)))
+        0
+        7)
+
+  (test '(7) s-ref a-s 0))
   
 ;; ----------------------------------------
 

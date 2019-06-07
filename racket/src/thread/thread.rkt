@@ -13,6 +13,7 @@
          "atomic.rkt"
          "schedule-info.rkt"
          "custodian.rkt"
+         "custodian-object.rkt"
          "exit.rkt")
 
 (provide (rename-out [make-thread thread])
@@ -215,7 +216,9 @@
     t))
 
 (define (unsafe-thread-at-root proc)
-  (do-make-thread 'unsafe-thread-at-root proc #:at-root? #t))
+  (do-make-thread 'unsafe-thread-at-root proc
+                  #:at-root? #t
+                  #:custodian root-custodian))
 
 ;; ----------------------------------------
 ;; Thread status
@@ -681,16 +684,21 @@
          (lambda (c) (and (real? c) (c . >=  . 0)))
          #:contract "(>=/c 0)"
          secs)
-  (define until-msecs (+ (* secs 1000.0)
-                         (current-inexact-milliseconds)))
-  (let loop ()
-    ((thread-deschedule! (current-thread)
-                         until-msecs
-                         void
-                         (lambda ()
-                           ;; Woke up due to an ignored break?
-                           ;; Try again:
-                           (loop))))))
+  (cond
+    [(and (zero? secs)
+          (zero? (current-atomic)))
+     (thread-yield #f)]
+    [else
+     (define until-msecs (+ (* secs 1000.0)
+                            (current-inexact-milliseconds)))
+     (let loop ()
+       ((thread-deschedule! (current-thread)
+                            until-msecs
+                            void
+                            (lambda ()
+                              ;; Woke up due to an ignored break?
+                              ;; Try again:
+                              (loop)))))]))
 
 ;; ----------------------------------------
 ;; Tracking thread progress

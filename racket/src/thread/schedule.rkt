@@ -23,11 +23,10 @@
 (provide call-in-main-thread
          call-in-another-main-thread
          set-atomic-timeout-callback!
-         set-check-place-activity!)
+         set-check-place-activity!
+         thread-swap-count)
 
 (define TICKS 100000)
-
-(define-place-local process-milliseconds 0)
 
 ;; Initializes the thread system:
 (define (call-in-main-thread thunk)
@@ -42,16 +41,26 @@
   (set-root-custodian! c)
   (init-system-idle-evt!)
   (init-future-place!)
-  (call-in-main-thread thunk))
+  (call-in-main-thread thunk)
+  (init-schedule-counters!))
 
 ;; ----------------------------------------
 
+(define-place-local recent-process-milliseconds 0)
+(define-place-local skipped-time-accums 0)
+(define-place-local thread-swap-count 0)
+(define (init-schedule-counters!)
+  (set! recent-process-milliseconds 0)
+  (set! skipped-time-accums 0)
+  (set! thread-swap-count 0))
+ 
 (define (select-thread! [pending-callbacks null])
   (let loop ([g root-thread-group] [pending-callbacks pending-callbacks] [none-k maybe-done])
     (define callbacks (if (null? pending-callbacks)
                           (host:poll-async-callbacks)
                           pending-callbacks))
     (host:poll-will-executors)
+    (poll-custodian-will-executor)
     (check-external-events 'fast)
     (call-pre-poll-external-callbacks)
     (check-place-activity)
@@ -76,6 +85,7 @@
   (set-thread-sched-info! t #f)
   (current-thread t)
   (set-place-current-thread! current-place t)
+  (set! thread-swap-count (add1 thread-swap-count))
   (run-callbacks-in-engine
    e callbacks
    (lambda (e)
@@ -90,7 +100,7 @@
               (atomic-timeout-callback #f))))
         (lambda args
           (start-implicit-atomic-mode)
-          (accum-cpu-time! t)
+          (accum-cpu-time! t #t)
           (current-thread #f)
           (set-place-current-thread! current-place #f)
           (unless (zero? (current-atomic))
@@ -100,11 +110,11 @@
             (force-exit 0))
           (thread-did-work!)
           (select-thread!))
-        (lambda (e)
+        (lambda (e timeout?)
           (start-implicit-atomic-mode)
           (cond
             [(zero? (current-atomic))
-             (accum-cpu-time! t)
+             (accum-cpu-time! t timeout?)
              (current-thread #f)
              (set-place-current-thread! current-place #f)
              (unless (eq? (thread-engine t) 'done)
@@ -176,7 +186,7 @@
           (engine-block))
         (lambda args
           (internal-error "thread ended while it should run callbacks atomically"))
-        (lambda (e)
+        (lambda (e timeout?)
           (start-implicit-atomic-mode)
           (if done?
               (k e)
@@ -225,11 +235,27 @@
 
 ;; ----------------------------------------
 
-(define (accum-cpu-time! t)
-  (define start process-milliseconds)
-  (set! process-milliseconds (current-process-milliseconds))
-  (set-thread-cpu-time! t (+ (thread-cpu-time t)
-                             (- process-milliseconds start))))
+;; Getting CPU time is expensive relative to a thread
+;; switch, so limit precision in the case that the thread
+;; did not use up its quantum. This loss of precision
+;; should be ok, since `(current-process-milliseconds <thread>)`
+;; is used rarely, and it makes the most sense for threads
+;; that don't keep swapping themselves out.
+
+(define (accum-cpu-time! t timeout?)
+  (cond
+    [(not timeout?)
+     (define n skipped-time-accums)
+     (set! skipped-time-accums (add1 n))
+     (when (= n 100)
+       (accum-cpu-time! t #t))]
+    [else
+     (define start recent-process-milliseconds)
+     (define now (current-process-milliseconds))
+     (set! recent-process-milliseconds now)
+     (set! skipped-time-accums 0)
+     (set-thread-cpu-time! t (+ (thread-cpu-time t)
+                                (- now start)))]))
 
 ;; ----------------------------------------
 

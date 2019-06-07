@@ -10,7 +10,6 @@
                   [unsafe-place-local-set! rumble:unsafe-place-local-set!]
                   ;; These are extracted via `#%linklet`:
                   [make-engine rumble:make-engine]
-                  [engine-block rumble:engine-block]
                   [engine-timeout rumble:engine-timeout]
                   [engine-return rumble:engine-return]
                   [current-engine-state rumble:current-engine-state]
@@ -105,6 +104,7 @@
         'make-pthread-parameter make-pthread-parameter
         'unsafe-root-continuation-prompt-tag unsafe-root-continuation-prompt-tag
         'break-enabled-key break-enabled-key
+        'engine-block engine-block
         ;; These are actually redirected by "place-register.ss", but
         ;; we list them here for compatibility with the bootstrapping
         ;; variant of `#%pthread`
@@ -114,14 +114,13 @@
       [(|#%engine|)
        (hasheq
         'make-engine rumble:make-engine
-        'engine-block rumble:engine-block
         'engine-timeout rumble:engine-timeout
         'engine-return rumble:engine-return
         'current-engine-state (lambda (v) (rumble:current-engine-state v))
         'set-ctl-c-handler! rumble:set-ctl-c-handler!
         'poll-will-executors poll-will-executors
         'make-will-executor rumble:make-will-executor
-        'make-stubborn-will-executor rumble:make-stubborn-will-executor
+        'make-late-will-executor rumble:make-late-will-executor
         'will-executor? rumble:will-executor?
         'will-register rumble:will-register
         'will-try-execute rumble:will-try-execute
@@ -171,8 +170,8 @@
      (|#%app| (|#%app| 1/exit-handler) v)))
 
   (set-scheduler-lock-callbacks! (lambda () (1/make-semaphore 1))
-                                 1/semaphore-wait
-                                 1/semaphore-post)
+                                 unsafe-semaphore-wait
+                                 unsafe-semaphore-post)
 
   (set-scheduler-atomicity-callbacks! (lambda ()
                                         (current-atomic (fx+ (current-atomic) 1)))

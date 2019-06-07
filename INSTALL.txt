@@ -204,15 +204,15 @@ Use `make both` to build both traditional Racket and Racket-on-Chez,
 where packages are updated documentation is built only once (using
 traditional Racket).
 
-[*] For now, RacketCS requires the variant of Chez Scheme at
-       https://github.com/mflatt/ChezScheme
+[*] For now, Racket-on-Chez requires the variant of Chez Scheme at
+       https://github.com/racket/ChezScheme
 
 
 Even More Instructions: Building Racket Pieces
 ==============================================
 
 Instead of just using `make in-place` or `make unix-style`, you can
-take more control over the build by understand how the pieces fit
+take more control over the build by understanding how the pieces fit
 together.
 
 Building Minimal Racket
@@ -502,6 +502,13 @@ In more detail:
      server (to create package builds that are sent to clients). For
      example, `SERVER_PKG_INSTALL_OPTIONS=--source` could be useful
      to ensure that the server always builds from sources.
+
+     The `PACK_BUILT_OPTIONS` variable can be set to `--mode <mode>`
+     to set the package mode for built packages. The default `infer`
+     mode infers uses the package's `distribution-preference`
+     "info.rkt" field, if any, infers `binary` if the package has any
+     native libraries and no Racket sources, and infers `built`
+     otherwise.
 
      The server provides README files from the "build/readmes"
      directory. If "README.txt" does not exist when the sever is

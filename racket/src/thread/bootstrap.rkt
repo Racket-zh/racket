@@ -1,7 +1,7 @@
 #lang racket/base
 (require '#%linklet
          (only-in '#%foreign
-                  make-stubborn-will-executor)
+                  make-late-will-executor)
          "../common/queue.rkt")
 
 ;; Simulate engines by using the host system's threads.
@@ -66,9 +66,11 @@
     (set! prefix next-prefix)
     (break-thread t)
     (thread-resume t)
+    (define timeout? #f)
     (define t2
       (thread (lambda ()
                 (sleep (/ ticks 1000000.0))
+                (set! timeout? #t)
                 (thread-suspend t))))
     ;; Limited break propagation while syncing:
     (call-with-exception-handler
@@ -85,7 +87,7 @@
      [(thread-dead? t)
       (apply complete 0 results)]
      [else
-      (expire go)]))
+      (expire go timeout?)]))
   go)
 
 (define (engine-block)
@@ -120,8 +122,8 @@
 (define (make-will-executor/notify notify)
   (do-make-will-executor/notify make-will-executor notify))
 
-(define (make-stubborn-will-executor/notify notify)
-  (do-make-will-executor/notify make-stubborn-will-executor notify))
+(define (make-late-will-executor/notify notify [keep? #t])
+  (do-make-will-executor/notify make-late-will-executor notify))
 
 (define (will-register/notify we/n v proc)
   (will-register (will-executor/notify-we we/n)
@@ -223,11 +225,11 @@
                   'unsafe-place-local-set! unsafe-place-local-set!
                   'unsafe-add-global-finalizer (lambda (v proc) (void))
                   'unsafe-root-continuation-prompt-tag unsafe-root-continuation-prompt-tag
-                  'break-enabled-key break-enabled-key))
+                  'break-enabled-key break-enabled-key
+                  'engine-block engine-block))
 (primitive-table '#%engine
                  (hash 
                   'make-engine make-engine
-                  'engine-block engine-block
                   'engine-timeout engine-timeout
                   'engine-return (lambda args
                                    (error "engine-return: not ready"))
@@ -237,7 +239,7 @@
                   'continuation-marks continuation-marks ; doesn't work on engines
                   'poll-will-executors poll-will-executors
                   'make-will-executor make-will-executor/notify
-                  'make-stubborn-will-executor make-stubborn-will-executor/notify
+                  'make-late-will-executor make-late-will-executor/notify
                   'will-executor? will-executor/notify?
                   'will-register will-register/notify
                   'will-try-execute will-try-execute/notify

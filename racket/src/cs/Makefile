@@ -242,9 +242,9 @@ future2-demo: $(BUILDDIR)rumble.$(CSO)
 
 RUMBLE_SRCS = rumble/define.ss \
               rumble/virtual-register.ss \
+              rumble/layout.ss \
               rumble/check.ss \
 	      rumble/syntax-rule.ss \
-	      rumble/letrec.ss \
               rumble/constant.ss \
               rumble/hash-code.ss \
               rumble/struct.ss \

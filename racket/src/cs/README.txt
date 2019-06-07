@@ -10,6 +10,11 @@ organized into two layers:
    wrapper executables that combine Chez Scheme with the Racket
    functionality implemented in this immediate directory.
 
+In addition, "bootstrap" implements a simulation of Chez Scheme in
+Racket that can be used to bootstrap Chez Scheme from source (i.e.,
+using an existing Racket build, but without an existing Chez Scheme
+build).
+
 
 ========================================================================
  Requirements
@@ -29,7 +34,9 @@ automatically. You can select a different Racket excutable by
 supplying `--enable-racket=...` to `configure`.
 
 The Chez Scheme build must also be sufficiently new. See
-"../README.txt" for information on obtaining Chez Scheme.
+"../README.txt" for information on obtaining Chez Scheme (when not
+using a source Racket distribution that includes Chez Scheme's source
+already).
 
 
 ========================================================================
@@ -329,7 +336,7 @@ Safety and Debugging Mode
 -------------------------
 
 If you make changes to files in "rumble", you should turn off
-`[RUMBLE_]UNSAFE_COMP` in the makefile.
+`UNSAFE_COMP` in the makefile.
 
 You may want to turn on `DEBUG_COMP` in the makefile, so that
 backtraces provide expression-specific source locations instead of
@@ -457,36 +464,6 @@ atomic regions:
 
        It may be tempting to use that flag for other purposes, as a
        cheap way to disable thread swaps. For now, don't do that.
-
-
-Status and Thoughts on Various Racket Subsystems
-------------------------------------------------
-
- * Applicable structs work by adding an indirection to each function
-   call when the target is not obviously a plain procedure; with the
-   analysis in "../schemify/schemify.rkt", the indirection is not
-   needed often in a typical program, and the overhead appears to be
-   light when it is needed.
-
- * The "rktio" library fills the gap between Racket and Chez Scheme's
-   native I/O. The "rktio" library provides a minimal, non-blocking,
-   non-GCed interface to OS-specific functionality. Its' compiled to a
-   shared library and loadied into Chez Scheme, and then Racket's I/O
-   API is implemented in Racket by calling rktio as a kind of foreign
-   library.
-
- * The Racket and Chez Scheme numeric systems likely differ in some
-   ways, and I don't know how much work that will be.
-
- * For futures, Chez Scheme exposes OS-level threads with limited
-   safety guarantees. An implementation of futures can probably take
-   advantage of threads with thread-unsafe primitives wrapped to
-   divert to a barrier when called in a future.
-
- * GC-based memory accounting requires new support from Chez Scheme.
-
- * Extflonums will probably exist only on the traditional Racket
-   implementation for a long while.
 
 Performance Notes
 -----------------

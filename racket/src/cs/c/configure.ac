@@ -17,13 +17,16 @@ AC_ARG_ENABLE(standalone, [  --enable-standalone     create a standalone shared 
 AC_ARG_ENABLE(pthread,    [  --enable-pthread        link with pthreads (usually auto-enabled if needed)])
 AC_ARG_ENABLE(iconv,      [  --enable-iconv          use iconv (usually auto-enabled)])
 AC_ARG_ENABLE(compress,   [  --enable-compress       compress compiled code (enabled by default)])
+AC_ARG_ENABLE(compressboot, [  --enable-compressboot   compress boot files])
 m4_include(../ac/path_arg.m4)
 AC_ARG_ENABLE(racket,     [  --enable-racket=<path>  use <path> as Racket to build; or "auto" to create])
 AC_ARG_ENABLE(scheme,     [  --enable-scheme=<path>  Chez Scheme build directory at <path>])
 AC_ARG_ENABLE(mach,       [  --enable-mach=<mach>    Use Chez Scheme machine type <mach>])
 AC_ARG_ENABLE(target,     [  --enable-target=<mach>  Cross-build for Chez Scheme machine type <mach>])
+m4_include(../ac/natipkg_arg.m4)
 m4_include(../ac/sdk_arg.m4)
 m4_include(../ac/strip_arg.m4)
+m4_include(../ac/ubsan_arg.m4)
 AC_ARG_ENABLE(csdefault,  [  --enable-csdefault      use CS as default build])
 AC_ARG_ENABLE(csonly,     [  --enable-csonly         build CS only])
 AC_ARG_ENABLE(parent,     [  --enable-parent         Create "../Makefile" (internal use)])
@@ -58,11 +61,13 @@ show_explicitly_set()
 show_explicitly_enabled "${enable_pthread}" "pthreads"
 show_explicitly_disabled "${enable_pthread}" "pthreads"
 show_explicitly_disabled "${enable_compress}" "Compressed code"
+show_explicitly_enabled "${enable_compressboot}" "Compressed boot files"
 show_explicitly_enabled "${enable_xonx}" "Unix style"
 show_explicitly_set "${enable_racket}" "Racket"
 show_explicitly_set "${enable_scheme}" "Chez Scheme build directory"
 show_explicitly_set "${enable_mach}" "machine type"
 show_explicitly_set "${enable_target}" "cross-build machine type"
+m4_include(../ac/natipkg_show.m4)
 
 if test "${enable_csonly}" = "yes" ; then
   enable_csdefault=yes
@@ -118,6 +123,7 @@ MINGW="not_mingw"
 NOT_MINGW=""
 CONFIGURE_RACKET_SO_COMPILE=""
 COMPRESS_COMP=""
+BOOT_COMPRESS_COMP=""
 ELF_COMP=""
 
 FRAMEWORK_INSTALL_DIR='$(libpltdir)'
@@ -125,6 +131,7 @@ FRAMEWORK_PREFIX='@executable_path/../lib/'
 
 RACKET='$(DEFAULT_RACKET)'
 RUN_RACKET='$(RUN_THIS_RACKET)'
+SETUP_BOOT_MODE=--boot
 
 INSTALL_SETUP_FLAGS=
 INSTALL_SETUP_RACKET_FLAGS=
@@ -373,15 +380,21 @@ fi
 # is different in cross-build mode).
 
 SCHEME_SRC=../../ChezScheme
-MAKE_BUILD_SCHEME=y
+MAKE_BUILD_SCHEME=checkout
 
 if test "${enable_scheme}" != "" ; then
   SCHEME_SRC="${enable_scheme}"
-  MAKE_BUILD_SCHEME=n
+  MAKE_BUILD_SCHEME=none
+else
+  # Check for a directory packaged with a source distribution
+  if test -d "${srcdir}/../../ChezScheme" ; then
+    MAKE_BUILD_SCHEME=copy
+  fi
 fi
 
 if test "${enable_racket}" != "" ; then
   RACKET="${enable_racket}"
+  SETUP_BOOT_MODE=--chain
 fi
 
 SCHEME_CONFIG_ARGS="--machine=${MACH} --disable-x11 ${disable_curses_arg} ${extra_scheme_config_args}"
@@ -389,6 +402,10 @@ SCHEME_CROSS_CONFIG_ARGS="--machine=${TARGET_MACH} --disable-x11 ${disable_curse
 
 if test "${enable_compress}" != "no" ; then
   COMPRESS_COMP="--compress"
+fi
+
+if test "${enable_compressboot}" = "yes" ; then
+  BOOT_COMPRESS_COMP="--compress"
 fi
 
 DIFF_MACH=skip
@@ -400,11 +417,21 @@ fi
 
 m4_include(../ac/strip.m4)
 
+############## natipkg ################
+
+if test "${enable_natipkg}" = "yes" ; then
+  CONFIGURE_RACKET_SO_COMPILE="${CONFIGURE_RACKET_SO_COMPILE} env PLT_CS_SLSP_SUFFIX=-natipkg"
+fi
+
+############## ubsan ################
+
+m4_include(../ac/ubsan.m4)
+
 ############## Makefile includes ################
 
 if test "$INCLUDEDEP" = "#" ; then
   is_gmake=`make -v no-such-target-we-hope 2>&1 | grep "GNU Make"`
-  if test "$is_gmake" = "" ; then
+  if test "$is_gmake" != "" ; then
      INCLUDEDEP="-include"
   fi
 fi
@@ -604,12 +631,14 @@ AC_SUBST(DIFF_MACH)
 AC_SUBST(CROSS_MODE)
 AC_SUBST(T_CROSS_MODE)
 AC_SUBST(TT_CROSS_MODE)
+AC_SUBST(SETUP_BOOT_MODE)
 AC_SUBST(OSX)
 AC_SUBST(NOT_OSX)
 AC_SUBST(MINGW)
 AC_SUBST(NOT_MINGW)
 AC_SUBST(CONFIGURE_RACKET_SO_COMPILE)
 AC_SUBST(COMPRESS_COMP)
+AC_SUBST(BOOT_COMPRESS_COMP)
 AC_SUBST(ELF_COMP)
 AC_SUBST(SCHEME_SRC)
 AC_SUBST(MAKE_BUILD_SCHEME)

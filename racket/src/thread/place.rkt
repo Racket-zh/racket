@@ -43,7 +43,7 @@
   (when (eq? initial-place current-place)
     ;; needed by custodian GC callback for memory limits:
     (atomically (ensure-wakeup-handle!)))
-  (define orig-cust (create-custodian))
+  (define orig-cust (create-custodian #f))
   (define lock (host:make-mutex))
   (define started (host:make-condition))
   (define-values (place-pch child-pch) (place-channel))
@@ -54,10 +54,20 @@
   (set-custodian-place! orig-cust new-place)
   (define done-waiting (place-done-waiting new-place))
   (define (default-exit v)
-    (plumber-flush-all orig-plumber)
+    (define flush-failed? #f)
+    (plumber-flush-all/wrap orig-plumber
+                            ;; detect whether there's an error on a flush
+                            (lambda (proc h)
+                              (call-with-continuation-prompt
+                               (lambda ()
+                                 (proc h))
+                               (default-continuation-prompt-tag)
+                               (lambda (thunk)
+                                 (set! flush-failed? #t)
+                                 (call-with-continuation-prompt thunk)))))
     (atomically
      (host:mutex-acquire lock)
-     (set-place-queued-result! new-place (if (byte? v) v 0))
+     (set-place-queued-result! new-place (if flush-failed? 1 (if (byte? v) v 0)))
      (place-has-activity! new-place)
      (unsafe-custodian-unregister new-place (place-custodian-ref new-place))
      (host:mutex-release lock))
@@ -98,17 +108,19 @@
              (set-place-wakeup-handle! new-place (sandman-get-wakeup-handle))
              (host:condition-signal started) ; place is sufficiently started
              (host:mutex-release lock)
-             (finish))
+             (finish)
+             (default-exit 0))
            (default-continuation-prompt-tag)
            (lambda (thunk)
              ;; Thread ended with escape => exit with status 1
              (call-with-continuation-prompt thunk)
-             (default-exit 1)))
-          (default-exit 0))))
+             (default-exit 1))))))
      (lambda (result)
        ;; Place is done, so save the result and alert anyone waiting on
        ;; the place
        (do-custodian-shutdown-all orig-cust)
+       (for ([proc (in-list (place-post-shutdown new-place))])
+         (proc))
        (host:mutex-acquire lock)
        (set-place-result! new-place result)
        (host:mutex-release lock)
@@ -124,8 +136,8 @@
 
 (define/who (place-break p [kind #f])
   (check who place? p)
-  (unless (or (not kind) (eq? kind 'hangup) (eq? kind 'terminate))
-    (raise-argument-error who "(or/c #f 'hangup 'terminate)" kind))
+  (unless (or (not kind) (eq? kind 'hang-up) (eq? kind 'terminate))
+    (raise-argument-error who "(or/c #f 'hang-up 'terminate)" kind))
   (atomically
    (host:mutex-acquire (place-lock p))
    (define pending-break (place-pending-break p))

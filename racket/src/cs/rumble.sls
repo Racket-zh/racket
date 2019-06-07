@@ -7,8 +7,6 @@
           begin0
           $value
 
-          letrec*/names
-
           dynamic-wind
           call-with-current-continuation
           call-with-composable-continuation
@@ -83,7 +81,7 @@
           uncaught-exception-handler
           error-display-handler
           error-escape-handler
-          register-linklet-instantiate-continuation! ; not exported to Racket
+          linklet-instantiate-key ; not exported to Racket
           set-error-display-eprintf! ; not exported to Racket
           set-log-system-message! ; not exported to Racket
 
@@ -373,6 +371,7 @@
           byte?
           double-flonum?
           single-flonum?
+          single-flonum-available?
           real->double-flonum
           real->single-flonum
           arithmetic-shift
@@ -476,7 +475,7 @@
           ;; not the same as Racket will executors:
           (rename
            [make-will-executor rumble:make-will-executor]
-           [make-stubborn-will-executor rumble:make-stubborn-will-executor]
+           [make-late-will-executor rumble:make-late-will-executor]
            [will-executor? rumble:will-executor?]
            [will-register rumble:will-register]
            [will-try-execute rumble:will-try-execute])
@@ -491,6 +490,7 @@
           system-library-subpath-string ; not exported to Racket
           set-get-machine-info!         ; not exported to Racket
           set-cross-mode!               ; not exported to Racket
+          set-fs-change-properties!     ; not exported to Racket
 
           unsafe-car
           unsafe-cdr
@@ -613,10 +613,24 @@
           ptr-set! saved-errno set-cpointer-tag! set-ptr-offset! vector->cpointer
           unsafe-register-process-global unsafe-add-global-finalizer
           (rename [ffi-lib* ffi-lib])
+          immobile-cell-ref               ; not exported to Racket
+          immobile-cell->address          ; not exported to Racket
+          address->immobile-cell          ; not exported to Racket
           set-ffi-get-lib-and-obj!        ; not exported to Racket
           poll-async-callbacks            ; not exported to Racket
           set-make-async-callback-poll-wakeup! ; not exported to Racket
           set-foreign-eval!               ; not exported to Racket
+
+          ptr-ref/int8 ptr-set!/int8      ; not exported to Racket
+          ptr-ref/uint8 ptr-set!/uint8    ; not exported to Racket
+          ptr-ref/int16 ptr-set!/int16    ; not exported to Racket
+          ptr-ref/uint16 ptr-set!/uint16  ; not exported to Racket
+          ptr-ref/int32 ptr-set!/int32    ; not exported to Racket
+          ptr-ref/uint32 ptr-set!/uint32  ; not exported to Racket
+          ptr-ref/int64 ptr-set!/int64    ; not exported to Racket
+          ptr-ref/uint64 ptr-set!/uint64  ; not exported to Racket
+          ptr-ref/double ptr-set!/double  ; not exported to Racket
+          ptr-ref/float ptr-set!/float    ; not exported to Racket
 
           unsafe-unbox
           unsafe-unbox*
@@ -706,8 +720,8 @@
 
   (include "rumble/define.ss")
   (include "rumble/virtual-register.ss")
+  (include "rumble/layout.ss")
   (include "rumble/begin0.ss")
-  (include "rumble/letrec.ss")
   (include "rumble/syntax-rule.ss")
   (include "rumble/value.ss")
   (include "rumble/lock.ss")
@@ -787,4 +801,5 @@
   (set-procedure-impersonator-hash!)
   (set-vector-impersonator-hash!)
   (set-box-impersonator-hash!)
-  (set-cpointer-hash!))
+  (set-cpointer-hash!)
+  (set-exn-srcloc-properties!))
