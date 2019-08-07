@@ -105,7 +105,7 @@ rktl:
 	mkdir -p ../../bin
 	touch ../../bin/racket
 
-$(BUILDDIR)expander.$(CSO): expander.sls $(BUILDDIR)compiled/expander.scm $(PRIMITIVES_TABLES) $(EXPANDER_DEPS) $(COMPILE_FILE_DEPS)
+$(BUILDDIR)expander.$(CSO): expander.sls expander/env.ss $(BUILDDIR)compiled/expander.scm $(PRIMITIVES_TABLES) $(EXPANDER_DEPS) $(COMPILE_FILE_DEPS)
 	$(COMPILE_FILE) expander.sls $(EXPANDER_DEPS)
 
 $(BUILDDIR)compiled/expander.scm: $(BUILDDIR)compiled/expander.rktl $(CONVERT_DEPS)
@@ -275,6 +275,7 @@ RUMBLE_SRCS = rumble/define.ss \
               rumble/bytes.ss \
               rumble/string.ss \
               rumble/char.ss \
+              rumble/char-range.ss \
               rumble/symbol.ss \
               rumble/list.ss \
               rumble/vector.ss \

@@ -52,6 +52,14 @@
        (cached
         (for/and ([e (in-list es)])
           (simple? e)))]
+      [`(set! ,_ ,e)
+       #:guard (not pure?)
+       (simple? e)]
+      [`(values ,es ...)
+       #:guard (not pure?)
+       (cached
+        (for/and ([e (in-list es)])
+          (simple? e)))]
       [`(,proc . ,args)
        (cached
         (let ([proc (unwrap proc)])
@@ -60,7 +68,7 @@
                             (hash-ref prim-knowns proc #f))])
                  (and (if pure?
                           (known-procedure/pure? v)
-                          (known-procedure/succeeds? v))
+                          (known-procedure/no-prompt? v))
                       (bitwise-bit-set? (known-procedure-arity-mask v) (length args))))
                (simple-mutated-state? (hash-ref mutated proc #f))
                (for/and ([arg (in-list args)])

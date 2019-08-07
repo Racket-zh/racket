@@ -56,6 +56,8 @@
 (check-defined 'procedure-known-single-valued?)
 (check-defined 'compress-format)
 (check-defined '#%$record-cas!)
+(check-defined 'eq-hashtable-try-atomic-cell)
+(check-defined 'hashtable-ref-cell)
 
 ;; ----------------------------------------
 

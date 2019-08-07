@@ -6,8 +6,34 @@
      (if barrier?
          (call-with-continuation-barrier
           (lambda ()
-            (chez:raise v)))
-         (chez:raise v))]))
+            (do-raise v)))
+         (do-raise v))]))
+
+(define (do-raise v)
+  (let ([hs (continuation-mark-set->list (current-continuation-marks/no-trace)
+                                         exception-handler-key
+                                         the-root-continuation-prompt-tag)]
+        [init-v (condition->exn v)])
+    (let ([call-with-nested-handler
+           (lambda (thunk)
+             (call-with-exception-handler
+              (make-nested-exception-handler "exception handler" init-v)
+              (lambda ()
+                (call-with-break-disabled thunk))))])
+      (let loop ([hs hs] [v init-v])
+        (cond
+         [(null? hs)
+          (call-with-nested-handler
+           (lambda () (|#%app| (|#%app| uncaught-exception-handler) v)))
+          ;; Use `nested-exception-handler` if the uncaught-exception
+          ;; handler doesn't escape:
+          ((make-nested-exception-handler #f v) #f)]
+         [else
+          (let ([h (car hs)]
+                [hs (cdr hs)])
+            (let ([new-v (call-with-nested-handler
+                          (lambda () (|#%app| h v)))])
+              (loop hs new-v)))])))))
 
 ;; ----------------------------------------
 
@@ -533,44 +559,33 @@
    (lambda (slow-k l)
      l)))
 
-(define (continuation->trace* k)
-  (call-with-values
-   (lambda ()
-     (let loop ([k k] [slow-k k] [move? #f])
-       (cond
-         [(or (not (#%$continuation? k))
-              (eq? k #%$null-continuation))
-          (values slow-k '())]
+(define primitive-names #f)
+(define (install-primitives-table! primitives)
+  (set! primitive-names primitives))
+
+;; Simplified variant of `continuation->trace` that can be called to
+;; get a likely primitive to blame for a blocking future.
+(define (continuation-current-primitive k exclusions)
+  (let loop ([k (if (full-continuation? k) (full-continuation-k k) k)])
+    (cond
+     [(or (not (#%$continuation? k))
+          (eq? k #%$null-continuation))
+      #f]
+     [else
+      (let* ([name (or (let ([n #f])
+                         (and n
+                              (string->symbol (format "body of ~a" n))))
+                       (let* ([c (#%$continuation-return-code k)]
+                              [n (#%$code-name c)])
+                         (and n (string->symbol n))))])
+        (cond
+         [(and name
+               (hash-ref primitive-names name #f)
+               (not (#%memq name exclusions)))
+          name]
          [else
-          (let* ([name (or (let ([n #f])
-                             (and n
-                                  (string->symbol (format "body of ~a" n))))
-                           (let* ([c (#%$continuation-return-code k)]
-                                  [n (#%$code-name c)])
-                             n))]
-                 [desc
-                  (let* ([ci (#%$code-info (#%$continuation-return-code k))]
-                         [src (and
-                               (code-info? ci)
-                               (or
-                                ;; when per-expression inspector info is available:
-                                (find-rpi (#%$continuation-return-offset k) ci)
-                                ;; when only per-function source location is available:
-                                (code-info-src ci)))])
-                    (and (or name src)
-                         (cons name src)))])
-            (#%$split-continuation k 0)
-            (call-with-values
-             (lambda () (loop (#%$continuation-link k) (if move? (#%$continuation-link slow-k) slow-k) (not move?)))
-             (lambda (slow-k l)
-               (let ([l (if desc
-                            (cons desc l)
-                            l)])
-                 (when (eq? k slow-k)
-                   (hashtable-set! cached-traces k l))
-                 (values slow-k l)))))])))
-   (lambda (slow-k l)
-     l)))
+          (#%$split-continuation k 0)
+          (loop (#%$continuation-link k))]))])))
 
 (define (traces->context ls)
   (let loop ([l '()] [ls ls])
@@ -773,31 +788,7 @@
       [(and (warning? v)
             (not (non-continuable-violation? v)))
        (log-system-message 'warning (exn->string exn))]
-      [else
-       (let ([hs (continuation-mark-set->list (current-continuation-marks/no-trace)
-                                              exception-handler-key
-                                              the-root-continuation-prompt-tag)]
-             [init-v (condition->exn v)])
-         (let ([call-with-nested-handler
-                (lambda (thunk)
-                  (call-with-exception-handler
-                   (make-nested-exception-handler "exception handler" init-v)
-                   (lambda ()
-                     (call-with-break-disabled thunk))))])
-           (let loop ([hs hs] [v init-v])
-             (cond
-              [(null? hs)
-               (call-with-nested-handler
-                (lambda () (|#%app| (|#%app| uncaught-exception-handler) v)))
-               ;; Use `nested-exception-handler` if the uncaught-exception
-               ;; handler doesn't escape:
-               ((make-nested-exception-handler #f v) #f)]
-              [else
-               (let ([h (car hs)]
-                     [hs (cdr hs)])
-                 (let ([new-v (call-with-nested-handler
-                               (lambda () (|#%app| h v)))])
-                   (loop hs new-v)))]))))]))))
+      [else (do-raise v)]))))
 
 (define (make-nested-exception-handler what old-exn)
   (lambda (exn)

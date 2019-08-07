@@ -16,7 +16,6 @@ SCHEME_TARGET_INC = $(SCHEME_SRC)/$(TARGET_MACH)/boot/$(TARGET_MACH)
 CC = @CC@
 BASE_CFLAGS = @CFLAGS@ @CPPFLAGS@
 CFLAGS = $(BASE_CFLAGS) -I$(SCHEME_TARGET_INC) -I$(srcdir)/../../rktio -Irktio -I.
-LD = @LD@
 LDFLAGS = @LDFLAGS@
 LIBS = @LIBS@
 AR = @AR@
@@ -141,7 +140,7 @@ scheme-make-copy:
 	if [ ! -d "$(SCHEME_SRC)" ] ; then cp -r $(srcdir)/../../ChezScheme "$(SCHEME_SRC)" ; fi
 	$(MAKE) scheme-make-finish
 
-SCHEME_CONFIG_VARS = CC="$(CC)" CFLAGS="$(BASE_CFLAGS)" LD="$(LD)" LDFLAGS="$(LDFLAGS)" \
+SCHEME_CONFIG_VARS = CC="$(CC)" CFLAGS="$(BASE_CFLAGS)" LDFLAGS="$(LDFLAGS)" \
                      AR="$(AR)" ARFLAGS="$(ARFLAGS)" RANLIB="$(RANLIB)" \
                      WINDRES="$(WINDRES)"
 
@@ -179,6 +178,7 @@ scheme-cross:
 # Rebuild patch file and cross "petite.boot" and "scheme.boot" when older
 # than the build-host "scheme.boot"
 $(SCHEME_SRC)/$(TARGET_MACH)/s/xpatch: $(SCHEME_SRC)/$(MACH)/boot/$(MACH)/scheme.boot
+	rm -f $(SCHEME_SRC)/$(TARGET_MACH)/s/nanopass.so $(SCHEME_SRC)/$(TARGET_MACH)/s/nanopass/*.so
 	cd $(SCHEME_SRC)/$(TARGET_MACH)/s && $(MAKE) -f Mf-cross m=$(MACH) xm=$(TARGET_MACH) Scheme="$(SCHEME_BIN)" SCHEMEHEAPDIRS="$(SCHEME_INC)"
 
 XPATCH =
@@ -201,17 +201,27 @@ EMBED_DEPS = $(srcdir)/embed-boot.rkt
 
 racketcs@NOT_OSX@@NOT_MINGW@: raw_racketcs petite-v.boot scheme-v.boot racket-v.boot $(EMBED_DEPS)
 	$(BOOTSTRAP_RACKET) $(srcdir)/embed-boot.rkt @ELF_COMP@ @BOOT_COMPRESS_COMP@ raw_racketcs racketcs petite-v.boot scheme-v.boot racket-v.boot
+	@POST_LINKER@ racketcs
 
 gracketcs@NOT_OSX@@NOT_MINGW@: raw_gracketcs petite-v.boot scheme-v.boot racket-v.boot $(EMBED_DEPS)
 	$(BOOTSTRAP_RACKET) $(srcdir)/embed-boot.rkt @ELF_COMP@ @BOOT_COMPRESS_COMP@ raw_gracketcs gracketcs petite-v.boot scheme-v.boot racket-v.boot
+	@POST_LINKER@ gracketcs
 
-BOOT_OBJS = boot.o $(SCHEME_TARGET_INC)/kernel.o rktio/librktio.a
+OWN_Z_LIB = $(SCHEME_TARGET_INC)/../../zlib/libz.a
+OWN_LZ4_LIB = $(SCHEME_TARGET_INC)/../../lz4/lib/liblz4.a
+SCHEME_LIB_DEPS = $(SCHEME_TARGET_INC)/libkernel.a @Z_LIB_DEP@ @LZ4_LIB_DEP@
+SCHEME_LIBS = $(SCHEME_TARGET_INC)/libkernel.a @Z_LIB@ @LZ4_LIB@
 
-raw_racketcs: main.o boot.o $(BOOT_OBJS)
+BOOT_OBJ_DEPS = boot.o $(SCHEME_LIB_DEPS) rktio/librktio.a
+BOOT_OBJS = boot.o $(SCHEME_LIBS) rktio/librktio.a
+
+raw_racketcs: main.o boot.o $(BOOT_OBJ_DEPS)
 	$(CC) $(CFLAGS) -o raw_racketcs main.o $(BOOT_OBJS) $(LDFLAGS) $(LIBS)
+	@POST_LINKER@ raw_racketcs
 
-raw_gracketcs: grmain.o boot.o $(BOOT_OBJS)
+raw_gracketcs: grmain.o boot.o $(BOOT_OBJ_DEPS)
 	$(CC) $(CFLAGS) -o raw_gracketcs grmain.o $(BOOT_OBJS) $(LDFLAGS) $(LIBS)
+	@POST_LINKER@ raw_gracketcs
 
 petite-v.boot: $(SCHEME_TARGET_INC)/petite.boot
 	$(SCHEME) --script $(srcdir)/to-vfasl.ss @BOOT_COMPRESS_COMP@ @TT_CROSS_MODE@ $(SCHEME_TARGET_INC)/petite.boot petite-v.boot
@@ -248,7 +258,7 @@ $(GRAPPSKEL): $(srcdir)/../../mac/osx_appl.rkt  $(srcdir)/../../racket/src/schve
 BOOT_FILES = $(SCHEME_TARGET_INC)/petite.boot $(SCHEME_TARGET_INC)/scheme.boot racket.boot
 FW_BOOT_DEST = Racket.framework/Versions/$(FWVERSION)_CS/boot
 
-$(RKTFW): $(BOOT_OBJS) $(BOOT_FILES)
+$(RKTFW): $(BOOT_OBJ_DEPS) $(BOOT_FILES)
 	mkdir -p  Racket.framework/Versions/$(FWVERSION)_CS
 	@RKTLINKER@ -o $(RKTFW) -dynamiclib -all_load $(BOOT_OBJS) $(LDFLAGS) $(LIBS)
 	rm -f Racket.framework/Racket
@@ -283,7 +293,7 @@ raw_gracketcs.exe: grmain.o MemoryModule.o grres.o
 
 MINGW_LIBS = -lshell32 -luser32 -lole32 -lrpcrt4 -luuid -lws2_32 -ladvapi32
 
-raw_libracketcs.dll: boot.o $(BOOT_OBJS) libres.o
+raw_libracketcs.dll: boot.o $(BOOT_OBJ_DEPS) libres.o
 	$(CC) $(CFLAGS) --shared -o raw_libracketcs.dll $(BOOT_OBJS) libres.o $(LDFLAGS) rktio/librktio.a $(MINGW_LIBS) -static-libgcc $(LIBS)
 
 MemoryModule.o: $(srcdir)/../../start/MemoryModule.c
@@ -326,14 +336,18 @@ plain-install-upcased:
 	$(ICP) GRacketCS.exe $(libpltdir)/GRacket$(CS_INSTALLED).exe
 	$(ICP) MzStart.exe $(libpltdir)/MzStart.exe
 	$(ICP) MrStart.exe $(libpltdir)/MrStart.exe
+	$(STRIP_DEBUG) $(prefix)/Racket$(CS_INSTALLED).exe
+	$(STRIP_DEBUG) $(libpltdir)/GRacket$(CS_INSTALLED).exe
+	$(STRIP_DEBUG) $(libpltdir)/MzStart.exe
+	$(STRIP_DEBUG) $(libpltdir)/MrStart.exe
 	$(MAKE) system-install
 	$(MAKE) compile-xpatch.$(TARGET_MACH)
 	$(MAKE) library-xpatch.$(TARGET_MACH)
 
 SCHEME_XPATCH = $(SCHEME_SRC)/$(TARGET_MACH)/s/xpatch
 
-compile-xpatch.$(TARGET_MACH): $(SCHEME_XPATCH) $(srcdir)/mk-cross-serve.ss $(srcdir)/cross-serve.ss
-	$(SCHEME) --script $(srcdir)/mk-cross-serve.ss $(srcdir)/cross-serve.ss
+compile-xpatch.$(TARGET_MACH): $(SCHEME_XPATCH) $(srcdir)/mk-cross-serve.ss $(srcdir)/cross-serve.ss $(srcdir)/../expander/env.ss
+	$(SCHEME) --script $(srcdir)/mk-cross-serve.ss $(srcdir)/cross-serve.ss $(srcdir)/../expander/env.ss
 	cat cross-serve.so $(SCHEME_XPATCH) > compile-xpatch.$(TARGET_MACH)
 
 RACKET_XPATCH = chezpart.$(MACH) rumble.$(MACH)	thread.$(MACH) \
@@ -460,8 +474,15 @@ COMP_SUBDIR_CONFIGURE_ARGS=@COMP_SUBDIR_CONFIGURE_ARGS@
 CONFIGURE_SRCS = $(srcdir)/configure $(srcdir)/Makefile.in \
                  $(srcdir)/../../rktio/Makefile.in $(srcdir)/../../rktio/configure
 
-reconfigure:
-	$(MAKE) Makefile
+# Only fire the `Makefile` rule explicitly via `reconfigure`
+NO_RECONFIG =
+ON_RECONFIG = no
 
-Makefile: $(CONFIGURE_SRCS)
+reconfigure:
+	$(MAKE) Makefile NO_RECONFIG=no ON_RECONFIG=
+
+Makefile$(ON_RECONFIG): $(CONFIGURE_SRCS)
 	$(srcdir)/configure $(COMP_SUBDIR_CONFIGURE_ARGS) $(CONFIGURE_ARGS_qq) $(MORE_CONFIGURE_ARGS)
+
+Makefile$(NO_RECONFIG):
+	$(NOOP)

@@ -1,5 +1,7 @@
 #lang racket/base
 (require '#%extfl
+         racket/linklet
+         racket/unsafe/undefined
          (for-syntax racket/base)
          "private/truncate-path.rkt"
          "private/relative-path.rkt"
@@ -93,9 +95,10 @@
   (fasl-hash-type     36)
   (fasl-immutable-hash-type 37)
 
-  (fasl-srcloc 38)
-
+  (fasl-srcloc-type 38)
   (fasl-extflonum-type 39)
+  (fasl-correlated-type 40)
+  (fasl-undefined-type 41)
 
   ;; Unallocated numbers here are for future extensions
 
@@ -152,6 +155,14 @@
             (loop k)
             (for ([e (in-vector (struct->vector v) 1)])
               (loop e)))]
+      [(srcloc? v)
+       (loop (srcloc-source v))]
+      [(correlated? v)
+       (loop (correlated-e v))
+       (loop (correlated-source v))
+       (for ([k (in-list (correlated-property-symbol-keys v))])
+         (loop k)
+         (loop (correlated-property v k)))]
       [else (void)]))
   (define (treat-immutable? v) (or (not keep-mutable?) (immutable? v)))
   (define path->relative-path-elements (make-path->relative-path-elements))
@@ -202,7 +213,7 @@
                         o)]
           [(single-flonum? v)
            (write-byte fasl-single-flonum-type o)
-           (write-bytes (if (eqv? v +nan.f)
+           (write-bytes (if (eqv? v (real->single-flonum +nan.0))
                             ;; use a canonical NaN (0 mantissa)
                             #"\0\0\300\177"
                             (real->floating-point-bytes v 4 #f))
@@ -269,7 +280,7 @@
                 ;; Convert to a string
                 (truncate-path src)]
                [else src]))
-           (write-fasl-integer fasl-srcloc o)
+           (write-fasl-integer fasl-srcloc-type o)
            (loop new-src)
            (loop (srcloc-line v))
            (loop (srcloc-column v))
@@ -329,8 +340,20 @@
           [(byte-regexp? v)
            (write-byte (if (byte-pregexp? v) fasl-byte-pregexp-type fasl-byte-regexp-type) o)
            (write-fasl-bytes (object-name v) o)]
+          [(correlated? v)
+           (write-byte fasl-correlated-type o)
+           (loop (correlated-e v))
+           (loop (srcloc (correlated-source v)
+                         (correlated-line v)
+                         (correlated-column v)
+                         (correlated-position v)
+                         (correlated-span v)))
+           (loop (for/list ([k (in-list (correlated-property-symbol-keys v))])
+                   (cons k (correlated-property v k))))]
+          [(eq? v unsafe-undefined)
+           (write-byte fasl-undefined-type o)]
           [else
-           (raise-arguments-error 'fasl-write
+           (raise-arguments-error 's-exp->fasl
                                   "cannot write value"
                                   "value" v)]))
       (get-output-bytes o #t)))
@@ -468,8 +491,20 @@
       (define len (read-fasl-integer i))
       (for/fold ([ht ht]) ([j (in-range len)])
         (hash-set ht (loop) (loop)))]
-     [(fasl-srcloc)
+     [(fasl-srcloc-type)
       (srcloc (loop) (loop) (loop) (loop) (loop))]
+     [(fasl-correlated-type)
+      (define e (loop))
+      (define s (loop))
+      (define c (datum->correlated e (vector (srcloc-source s)
+                                             (srcloc-line s)
+                                             (srcloc-column s)
+                                             (srcloc-position s)
+                                             (srcloc-span s))))
+      (for/fold ([c c]) ([p (in-list (loop))])
+        (correlated-property c (car p) (cdr p)))]
+     [(fasl-undefined-type)
+      unsafe-undefined]
      [else
       (cond
         [(type . >= . fasl-small-integer-start)

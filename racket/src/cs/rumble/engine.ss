@@ -24,7 +24,7 @@
 (define (set-engine-exit-handler! proc)
   (set! engine-exit proc))
 
-(define (make-engine thunk prompt-tag init-break-enabled-cell empty-config?)
+(define (make-engine thunk prompt-tag abort-handler init-break-enabled-cell empty-config?)
   (let ([paramz (if empty-config?
                     empty-parameterization
                     (current-parameterization))])
@@ -44,7 +44,8 @@
                                                 (with-continuation-mark
                                                     parameterization-key paramz
                                                   (|#%app| thunk)))
-                                              prompt-tag))
+                                              prompt-tag
+                                              abort-handler))
                            engine-return))))
                    (if empty-config?
                        (make-empty-thread-cell-values)
@@ -85,7 +86,10 @@
    [(timeout?)
     (assert-not-in-uninterrupted)
     (timer-interrupt-handler void)
-    (let ([es (current-engine-state)])
+    (let ([es (current-engine-state)]
+          [remain-ticks (if timeout?
+                            0
+                            (set-timer 0))])
       (unless es
         (error 'engine-block "not currently running an engine"))
       (reset-handler (engine-state-reset-handler es))
@@ -104,7 +108,7 @@
               (lambda (prefix) prefix) ; returns `prefix` to the above "(("
               (engine-state-thread-cell-values es)
               (engine-state-init-break-enabled-cell es))
-             timeout?))))))]
+             remain-ticks))))))]
    [() (engine-block #f)]))
 
 (define (engine-block/timeout)

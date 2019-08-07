@@ -13,11 +13,15 @@
          "syntax-mode.rkt"
          "constant.rkt"
          "config.rkt"
+         "rcd.rkt"
          (only-in "record.rkt"
                   do-$make-record-type
                   register-rtd-name!
                   register-rtd-fields!
-                  s:struct-type?)
+                  s:struct-type?
+                  record-predicate
+                  record-accessor
+                  record-mutator)
          (only-in "immediate.rkt"
                   base-rtd)
          (only-in "scheme-struct.rkt"
@@ -44,7 +48,8 @@
                      if
                      sort
                      fixnum?
-                     open-output-file)
+                     open-output-file
+                     dynamic-wind)
          library import export
          (rename-out [patch:define define]
                      [s:syntax syntax]
@@ -60,7 +65,8 @@
                      [s:splicing-let-syntax let-syntax]
                      [s:splicing-letrec-syntax letrec-syntax]
                      [let trace-let]
-                     [define trace-define])
+                     [define trace-define]
+                     [s:dynamic-wind dynamic-wind])
          guard
          identifier-syntax
          (for-syntax datum)
@@ -78,6 +84,9 @@
          record-constructor-descriptor
          record-constructor
          (rename-out [record-constructor r6rs:record-constructor])
+         record-predicate
+         record-accessor
+         record-mutator
          record-constructor-descriptor?
          syntax-violation
          port-position
@@ -371,6 +380,11 @@
     [(_ else) #t]
     [(_ e) e]))
 
+(define s:dynamic-wind
+  (case-lambda
+    [(pre thunk post) (dynamic-wind pre thunk post)]
+    [(critical? pre thunk post) (dynamic-wind pre thunk post)]))
+
 (begin-for-syntax
   (define-syntax-rule (with-implicit (tid id ...) body ...)
     (with-syntax ([id (datum->syntax (syntax tid) 'id)] ...)
@@ -576,32 +590,7 @@
      ;; For Chez Scheme's legacy procedure
      (struct-type-make-constructor rcd)]
     [(rec-cons-desc? rcd)
-     (define rtd (rec-cons-desc-rtd rcd))
-     (define ctr (struct-type-make-constructor rtd))
-     ((record-constructor-generator rcd) ctr)]))
-
-(define (record-constructor-generator rcd)
-  (define rtd (rec-cons-desc-rtd rcd))
-  (define p (rec-cons-desc-protocol rcd))
-  (define-values (r-name init-cnt auto-cnt ref set immutables super skipped?)
-    (struct-type-info rtd))
-  (cond
-    [(not p) (lambda (ctr) ctr)]
-    [(rec-cons-desc-parent-rcd rcd)
-     => (lambda (p-rcd)
-          (lambda (ctr)
-            (p ((record-constructor-generator p-rcd)
-                (lambda args1
-                  (lambda args2
-                    (apply ctr (append args1 args2))))))))]
-    [super
-     (define parent-p (lookup-protocol super))
-     (lambda (ctr)
-       (p (parent-p
-           (lambda args1
-             (lambda args2
-               (apply ctr (append args1 args2)))))))]
-    [else p]))
+     (rcd->constructor rcd lookup-protocol)]))
 
 (define (make-record-type-descriptor name parent uid s? o? fields)
   (do-$make-record-type base-rtd parent name fields s? o? null #:uid uid))

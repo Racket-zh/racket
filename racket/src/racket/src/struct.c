@@ -306,6 +306,7 @@ scheme_init_struct (Scheme_Startup_Env *env)
   /* Add poller structure: */
   REGISTER_SO(poller_struct);
   poller_struct = scheme_make_struct_type_from_string("unsafe-poller", NULL, 1, NULL, NULL, 1);
+  REGISTER_SO(scheme_unsafe_poller_proc);
   scheme_unsafe_poller_proc = make_struct_proc((Scheme_Struct_Type *)poller_struct, "unsafe-poller", SCHEME_CONSTR, 1);
 
   REGISTER_SO(write_property);
@@ -1660,7 +1661,7 @@ static int evt_struct_is_ready(Scheme_Object *o, Scheme_Schedule_Info *sinfo)
           v = scheme_make_closed_prim_w_arity(return_wrapped, (void *)v, "wrapper", 1, 1);
       }
       scheme_set_sync_target(sinfo, v, (done ? v : NULL), NULL, 0, 0, NULL);
-      return 1;
+      return done;
     }
   }
 
@@ -3423,6 +3424,10 @@ intptr_t scheme_get_or_check_structure_shape(Scheme_Object *e, Scheme_Object *ex
                 | ((st->nonfail_constructor
                     && (!expected || (v & STRUCT_PROC_SHAPE_NONFAIL_CONSTR)))
                    ? STRUCT_PROC_SHAPE_NONFAIL_CONSTR
+                   : 0)
+                | ((st->prefab_key
+                    && (!expected || (v & STRUCT_PROC_SHAPE_PREFAB)))
+                   ? STRUCT_PROC_SHAPE_PREFAB
                    : 0));
   } else if (!SCHEME_PRIMP(e)) {
     want_v = -1;

@@ -20,20 +20,21 @@ DISALLOW = ++disallow error
 # global state to be ok:
 GLOBALS = --no-global \
           ++global-ok the-sandman \
-          ++global-ok sync-on-channel \
           ++global-ok post-shutdown-action \
           ++global-ok get-subprocesses-time \
-          ++global-ok force-atomic-timeout-callback \
           ++global-ok pre-poll-callbacks \
           ++global-ok queued-shutdowns \
-          ++global-ok place-ensure-wakeup! \
-          ++global-ok place-wakeup-initial \
-          ++global-ok place-wakeup \
           ++global-ok compute-memory-sizes \
-          ++global-ok check-place-activity \
-          ++global-ok make-place-ports+fds
+          ++global-ok custodians-with-limits \
+          ++global-ok make-place-ports+fds \
+          ++global-ok pthread-count \
+          ++global-ok "logging-future-events?" \
+          ++global-ok log-future-event \
+          ++global-ok "logging-place-events?" \
+          ++global-ok log-place-event
 
-GENERATE_ARGS = -t main.rkt --submod main \
+
+GENERATE_ARGS = -t main.rkt \
                 --check-depends $(BUILDDIR)compiled/thread-dep.rktd \
                 ++depend-module ../expander/bootstrap-run.rkt \
                 --depends $(BUILDDIR)compiled/thread-dep.rktd \

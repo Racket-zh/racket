@@ -31,6 +31,8 @@ AC_ARG_ENABLE(csdefault,  [  --enable-csdefault      use CS as default build])
 AC_ARG_ENABLE(csonly,     [  --enable-csonly         build CS only])
 AC_ARG_ENABLE(parent,     [  --enable-parent         Create "../Makefile" (internal use)])
 m4_include(../ac/crossany_arg.m4)
+AC_ARG_ENABLE(libz,       [  --enable-libz           use installed libz if available])
+AC_ARG_ENABLE(liblz4,     [  --enable-liblz4         use installed liblz4 if available])
 
 m4_include(../ac/sdk.m4)
 
@@ -68,6 +70,8 @@ show_explicitly_set "${enable_scheme}" "Chez Scheme build directory"
 show_explicitly_set "${enable_mach}" "machine type"
 show_explicitly_set "${enable_target}" "cross-build machine type"
 m4_include(../ac/natipkg_show.m4)
+show_explicitly_enabled "${enable_libz}" "Installed libz"
+show_explicitly_enabled "${enable_liblz4}" "Installed liblz4"
 
 if test "${enable_csonly}" = "yes" ; then
   enable_csdefault=yes
@@ -125,6 +129,7 @@ CONFIGURE_RACKET_SO_COMPILE=""
 COMPRESS_COMP=""
 BOOT_COMPRESS_COMP=""
 ELF_COMP=""
+POST_LINKER="echo"
 
 FRAMEWORK_INSTALL_DIR='$(libpltdir)'
 FRAMEWORK_PREFIX='@executable_path/../lib/'
@@ -135,6 +140,11 @@ SETUP_BOOT_MODE=--boot
 
 INSTALL_SETUP_FLAGS=
 INSTALL_SETUP_RACKET_FLAGS=
+
+Z_LIB_DEP='$(OWN_Z_LIB)'
+Z_LIB='$(OWN_Z_LIB)'
+LZ4_LIB_DEP='$(OWN_LZ4_LIB)'
+LZ4_LIB='$(OWN_LZ4_LIB)'
 
 enable_pthread_by_default=yes
 
@@ -159,10 +169,8 @@ if test "$AR" = '' ; then
   fi
 fi
 if test "$ARFLAGS" = '' ; then 
-  ARFLAGS=ruv
+  ARFLAGS=rc
 fi
-
-LD="${ac_tool_prefix}ld"
 
 WINDRES=windres
 
@@ -183,9 +191,18 @@ case "$host_os" in
     ;;
   *freebsd*)
     MACH_OS=fb
+    CFLAGS="${CFLAGS} -I/usr/local/include"
+    LIBS="${LIBS} -L/usr/local/lib -liconv -lm -lpthread -lossp-uuid"
+    CPPFLAGS="${CPPFLAGS} -DELF_FIND_BOOT_SECTION"
+    ELF_COMP="--expect-elf"
     ;;
   openbsd*)
     MACH_OS=ob
+    CFLAGS="${CFLAGS} -I/usr/local/include"
+    LIBS="${LIBS} -L/usr/local/lib -liconv -lm -lpthread -lossp-uuid"
+    LDFLAGS="${LDFLAGS} -Wl,-zwxneeded"
+    CPPFLAGS="${CPPFLAGS} -DELF_FIND_BOOT_SECTION"
+    ELF_COMP="--expect-elf"
     ;;
   bitrig*)
     ;;
@@ -193,6 +210,10 @@ case "$host_os" in
     ;;
   netbsd*)
     MACH_OS=nb
+    LIBS="${LIBS} /usr/lib/i18n/libiconv_std.a -lm -lpthread"
+    CPPFLAGS="${CPPFLAGS} -DELF_FIND_BOOT_SECTION"
+    ELF_COMP="--expect-elf"
+    POST_LINKER="paxctl +m"
     ;;
   irix*)
     ;;
@@ -283,6 +304,8 @@ if test "${enable_pthread}" = "" ; then
     enable_pthread=yes
   fi
 fi
+
+############## machine type ################
 
 thread_prefix=""
 if test "${enable_pthread}" = "yes" ; then
@@ -379,6 +402,8 @@ fi
 # `TARGET_MACH` is the target that we're building for (which
 # is different in cross-build mode).
 
+############## Racket and Chez Scheme ################
+
 SCHEME_SRC=../../ChezScheme
 MAKE_BUILD_SCHEME=checkout
 
@@ -396,9 +421,6 @@ if test "${enable_racket}" != "" ; then
   RACKET="${enable_racket}"
   SETUP_BOOT_MODE=--chain
 fi
-
-SCHEME_CONFIG_ARGS="--machine=${MACH} --disable-x11 ${disable_curses_arg} ${extra_scheme_config_args}"
-SCHEME_CROSS_CONFIG_ARGS="--machine=${TARGET_MACH} --disable-x11 ${disable_curses_arg} ${extra_scheme_config_args}"
 
 if test "${enable_compress}" != "no" ; then
   COMPRESS_COMP="--compress"
@@ -510,6 +532,64 @@ if test "${enable_pthread}" = "yes" ; then
   AC_DEFINE(RKTIO_USE_PTHREADS, 1, [Pthread enabled])
 fi
 
+############## zlib and LZ4 ################
+
+if test "${enable_libz}" != "no" ; then
+  if test ! -d "$SCHEME_SRC/zlib" ; then
+    echo "No libz in Scheme directory, so trying installed"
+    enable_libz=yes
+  fi
+fi
+
+if test "${enable_liblz4}" != "no" ; then
+  if test ! -d "$SCHEME_SRC/lz4" ; then
+    echo "No lz4 in Scheme directory, so trying installed"
+    enable_liblz4=yes
+  fi
+fi
+
+if test "${enable_libz}" = "yes" ; then
+  AC_MSG_CHECKING([for libz])
+
+  OLD_LIBS="${LIBS}"
+  LIBS="${LIBS} -lz"
+  AC_TRY_LINK([#include <zlib.h>],
+              [zlibVersion();],
+             have_zlib=yes,
+             have_zlib=no)
+  AC_MSG_RESULT($have_zlib)
+
+  if test "${have_zlib}" = "no" ; then
+    LIBS="${OLD_LIBS}"
+    echo "Building own libz"
+  else
+    Z_LIB_DEP=""
+    Z_LIB="-lz"
+    extra_scheme_config_args="${extra_scheme_config_args} ZLIB=-lz"
+  fi
+fi
+
+if test "${enable_liblz4}" = "yes" ; then
+  AC_MSG_CHECKING([for liblz4])
+
+  OLD_LIBS="${LIBS}"
+  LIBS="${LIBS} -llz4"
+  AC_TRY_LINK([#include <lz4.h>],
+              [LZ4_versionString();],
+             have_lz4=yes,
+             have_lz4=no)
+  AC_MSG_RESULT($have_lz4)
+
+  if test "${have_lz4}" = "no" ; then
+    LIBS="${OLD_LIBS}"
+    echo "Building own liblz4"
+  else
+    LZ4_LIB_DEP=""
+    LZ4_LIB="-llz4"
+    extra_scheme_config_args="${extra_scheme_config_args} LZ4=-llz4"
+  fi
+fi
+
 ############## libtool ################
 
 if test "${enable_shared}" = "yes" ; then
@@ -571,6 +651,10 @@ else
   fi
 fi
 
+############## other inferred machine properties ################
+
+AC_CHECK_SIZEOF([void *])
+
 ############## final output ################
 
 # Pass certain configure args on to rktio
@@ -594,16 +678,16 @@ done
 
 SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} CC="'"'"${CC}"'"'
 SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} CFLAGS="'"'"${CFLAGS}"'"'
-SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} LD="'"'"${LD}"'"'
 SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} LDFLAGS="'"'"${LDFLAGS}"'"'
 SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} AR="'"'"${AR}"'"'
 SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} ARFLAGS="'"'"${ARFLAGS}"'"'
 SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} RANLIB="'"'"${RANLIB}"'"'
 SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} WINDRES="'"'"${WINDRES}"'"'
 
-############## final output ################
-
 CPPFLAGS="$CPPFLAGS $PREFLAGS"
+
+SCHEME_CONFIG_ARGS="--machine=${MACH} --disable-x11 ${disable_curses_arg} ${extra_scheme_config_args}"
+SCHEME_CROSS_CONFIG_ARGS="--machine=${TARGET_MACH} --disable-x11 ${disable_curses_arg} ${extra_scheme_config_args}"
 
 AC_SUBST(CC)
 AC_SUBST(CFLAGS)
@@ -620,6 +704,7 @@ AC_SUBST(ICP)
 AC_SUBST(STRIP_DEBUG)
 AC_SUBST(STRIP_LIB_DEBUG)
 AC_SUBST(RKTLINKER)
+AC_SUBST(POST_LINKER)
 AC_SUBST(INCLUDEDEP)
 AC_SUBST(RKTL_PRE)
 AC_SUBST(RKTL_POST)
@@ -636,6 +721,10 @@ AC_SUBST(OSX)
 AC_SUBST(NOT_OSX)
 AC_SUBST(MINGW)
 AC_SUBST(NOT_MINGW)
+AC_SUBST(Z_LIB_DEP)
+AC_SUBST(Z_LIB)
+AC_SUBST(LZ4_LIB_DEP)
+AC_SUBST(LZ4_LIB)
 AC_SUBST(CONFIGURE_RACKET_SO_COMPILE)
 AC_SUBST(COMPRESS_COMP)
 AC_SUBST(BOOT_COMPRESS_COMP)

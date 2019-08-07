@@ -691,6 +691,7 @@ x_libraries
 x_includes
 DYN_CFLAGS
 PLAIN_CC
+POST_LINKER
 MZLINKER
 REZ
 CC_FOR_BUILD
@@ -3366,6 +3367,8 @@ LIBRACKET_DEP=""
 EXE_SUFFIX=
 SO_SUFFIX=.so
 
+POST_LINKER="echo"
+
 MMM=3m
 MMM_INSTALLED=
 MMM_CAP_INSTALLED=
@@ -4594,8 +4597,9 @@ fi
   fi
 fi
 if test "$ARFLAGS" = '' ; then
-  ARFLAGS=ruv
+  ARFLAGS=rc
 fi
+SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} AR_FLAGS="'"'"${ARFLAGS}"'"'
 
 # If using gcc, we want all warnings:
 if test "$CC" = "gcc" ; then
@@ -4802,6 +4806,7 @@ case "$host_os" in
     ;;
   netbsd*)
     LIBS="$LIBS -rdynamic"
+    POST_LINKER="paxctl +m"
     ;;
   irix*)
     enable_cgcdefault="yes"
@@ -4828,6 +4833,10 @@ case "$host_os" in
        ;;
       i386|i486|i586|i686)
        enable_parallel_by_default=yes
+       ;;
+      arm*)
+       EXTRA_GMP_OBJ="gmp_arm_gcc.o"
+       EXTRA_GMP_DEP='$(EXTRA_GMP_DEP_FILE)'
        ;;
       *)
        ;;
@@ -6893,6 +6902,7 @@ fi
 ############## final output ################
 
 LIBS="$LIBS $EXTRALIBS"
+
 
 
 

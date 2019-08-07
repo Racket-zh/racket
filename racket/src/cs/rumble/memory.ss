@@ -69,11 +69,18 @@
         (garbage-collect-notify gen
                                 pre-allocated pre-allocated+overhead pre-time pre-cpu-time
                                 post-allocated  (current-memory-bytes) (real-time) (cpu-time)))
+      (update-eq-hash-code-table-size!)
       (poll-foreign-guardian)
       (run-collect-callbacks cdr)
       (when (and reachable-size-increments-callback
                  (fx= gen (collect-maximum-generation)))
-        (reachable-size-increments-callback compute-size-increments)))))
+        (reachable-size-increments-callback compute-size-increments))
+      (when (and (= gen (collect-maximum-generation))
+                 (current-engine-state))
+        ;; This `set-timer` doesn't necessarily penalize the right thread,
+        ;; but it's likely to penalize a thread that is allocating quickly:
+        (set-timer 1))
+      (void))))
 
 (define collect-garbage
   (case-lambda
@@ -129,7 +136,7 @@
   (let-values ([(backtrace-predicate use-prev? max-path-length) (parse-dump-memory-stats-arguments args)])
     (enable-object-counts #t)
     (enable-object-backreferences (and backtrace-predicate #t))
-    (collect (collect-maximum-generation))
+    (collect-garbage)
     (let* ([counts (object-counts)]
            [backreferences (object-backreferences)]
            [extract (lambda (static? cxr)

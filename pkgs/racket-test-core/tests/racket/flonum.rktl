@@ -343,4 +343,21 @@
 
 ;; ----------------------------------------
 
+(test -inf.0 fllog 0.0)
+(test -inf.0 fllog -0.0)
+(test +nan.0 fllog -1.0)
+(test +nan.0 log (fllog -1.0))
+
+(test -0.0 flsqrt -0.0)
+(test +nan.0 log (flsqrt -1.0))
+
+;; ----------------------------------------
+;; Make sure `flvector` is not incorrectly constant-folded
+
+(let ([v (flvector 1.0 2.0 3.0)])
+  (unsafe-flvector-set! v 0 10.0)
+  (test 10.0 'ref (unsafe-flvector-ref v 0)))
+
+;; ----------------------------------------
+
 (report-errs)

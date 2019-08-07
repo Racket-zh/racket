@@ -47,7 +47,7 @@ if test "$AR" = '' ; then
   fi
 fi
 if test "$ARFLAGS" = '' ; then 
-  ARFLAGS=ruv
+  ARFLAGS=rc
 fi
 
 AC_CHECK_LIB(m, fmod)
@@ -217,7 +217,7 @@ AC_LINK_IFELSE([AC_LANG_SOURCE([
    #include <strings.h>
    int main() {
      mbstate_t state;
-     char *src = "X";
+     const char *src = "X";
      bzero(&state, sizeof(mbstate_t));
      mbsrtowcs(0, &src, 0, &state);
      return 0;

@@ -53,6 +53,7 @@
           ;; schemify glue:
           make-internal-variable
           variable-set!
+          variable-set!/define
           variable-set!/check-undefined
           variable-ref
           variable-ref/no-check
@@ -219,16 +220,23 @@
      mode
      (compile* e)))
 
-  (define primitives (make-hasheq))
+  (define primitives (make-hasheq)) ; hash of sym -> known
+  (define primitive-tables '())     ; list of (cons sym hash)
+
+  ;; Arguments are `(cons <sym> <hash-table>)`
   (define (install-linklet-primitive-tables! . tables)
+    (set! primitive-tables tables)
     (for-each
      (lambda (table)
-       (hash-for-each table (lambda (k v) (hash-set! primitives k v))))
-     tables))
+       (hash-for-each (cdr table) (lambda (k v) (hash-set! primitives k v))))
+     tables)
+    ;; prropagate table to the rumble layer
+    (install-primitives-table! primitives))
   
   (define (outer-eval s paths format)
     (if (eq? format 'interpret)
-        (interpret-linklet s paths primitives variable-ref variable-ref/no-check variable-set!
+        (interpret-linklet s paths primitives variable-ref variable-ref/no-check
+                           variable-set! variable-set!/define
                            make-arity-wrapper-procedure)
         (let ([proc (compile* s)])
           (if (null? paths)
@@ -428,7 +436,7 @@
     (fields (mutable code) ; the procedure or interpretable form
             paths          ; list of paths; if non-empty, `code` expects them as arguments
             format         ; 'compile or 'interpret (where the latter may have compiled internal parts)
-            (mutable preparation) ; 'faslable, 'faslable-strict, 'callable, 'lazy, or (cons 'cross <machine>)
+            (mutable preparation) ; 'faslable, 'faslable-strict, 'faslable-unsafe, 'callable, 'lazy, or (cons 'cross <machine>)
             importss-abi   ; ABI for each import, in parallel to `importss`
             (mutable exports-info) ; hash(sym -> known) for info about export; see "known.rkt"; unfasl on demand
             name           ; name of the linklet (for debugging purposes)
@@ -472,15 +480,7 @@
   (define (linklet-pack-exports-info! l)
     (let ([info (linklet-exports-info l)])
       (when (hash? info)
-        (let ([new-info
-               (cond
-                [(zero? (hash-count info)) #f]
-                [else
-                 (let-values ([(o get) (open-bytevector-output-port)])
-                   ;; convert to a hashtable so the fasled form is compact and
-                   ;; doesn't have hash codes:
-                   (fasl-write* (hash->eq-hashtable (hash-copy info)) o)
-                   (get))])])
+        (let ([new-info (->fasl info)])
           (linklet-exports-info-set! l new-info)))))
 
   (define (linklet-unpack-exports-info! l)
@@ -489,8 +489,7 @@
         (let ([new-info
                (cond
                 [(not info) (hasheq)]
-                [else
-                 (eq-hashtable->hash (fasl-read (open-bytevector-input-port info)))])])
+                [else (fasl-> info)])])
           (linklet-exports-info-set! l new-info)))))
 
   (define compile-linklet
@@ -529,6 +528,7 @@
                            inline?
                            (not use-prompt?)
                            prim-knowns
+                           primitives
                            ;; Callback to get a specific linklet for a
                            ;; given import:
                            (if get-import
@@ -655,7 +655,7 @@
       (if import-keys
           (values lnk import-keys)
           lnk)]))
-    
+
   ;; Intended to speed up reuse of a linklet in exchange for not being
   ;; able to serialize anymore
   (define (eval-linklet linklet)
@@ -666,9 +666,14 @@
        (set-linklet-code linklet
                          (eval-from-bytevector (linklet-code linklet) (linklet-paths linklet) (linklet-format linklet))
                          'callable)]
+      [(faslable-unsafe)
+       (raise (|#%app|
+               exn:fail
+               "eval-linklet: cannot use linklet loaded with non-original code inspector"
+               (current-continuation-marks)))]
       [else
        linklet]))
-     
+
   (define instantiate-linklet
     (case-lambda
      [(linklet import-instances)
@@ -762,7 +767,7 @@
          (|#%app|
           exn:fail:contract:variable
           (string-append (symbol->string (variable-source-name var))
-                         ": cannot modify constant")
+                         ": cannot modify a constant")
           (current-continuation-marks)
           (variable-name var)))])]
      [else
@@ -770,13 +775,16 @@
       (when constance
         (set-variable-constance! var constance))]))
 
-  (define (variable-set! var val constance)
-    (do-variable-set! var val constance #f))
+  (define (variable-set! var val)
+    (do-variable-set! var val #f #f))
 
-  (define (variable-set!/check-undefined var val constance)
+  (define (variable-set!/define var val constance)
+    (do-variable-set! var val constance #t))
+
+  (define (variable-set!/check-undefined var val)
     (when (eq? (variable-val var) variable-undefined)
       (raise-undefined var #t))
-    (variable-set! var val constance))
+    (variable-set! var val))
 
   (define (variable-ref var)
     (let ([v (variable-val var)])
@@ -979,7 +987,7 @@
                      (let ([var (make-variable variable-undefined k k #f (weak-cons i #f))])
                        (hash-set! (instance-hash i) k var)
                        var))])
-        (variable-set! var v mode))]))
+        (do-variable-set! var v mode #f))]))
 
   (define (instance-unset-variable! i k)
     (unless (instance? i)
@@ -1006,7 +1014,7 @@
   ;; --------------------------------------------------
 
   (define-record variable-reference (instance      ; the use-site instance
-                                     var-or-info)) ; the referenced variable, 'constant, 'mutable, #f, or 'primitive
+                                     var-or-info)) ; the referenced variable, 'constant, 'mutable, #f, or primitive name
               
   (define variable-reference->instance
     (case-lambda
@@ -1024,13 +1032,16 @@
             (if (eq? i #!bwp)
                 (variable-reference->instance vr #t)
                 i))]
-         [(eq? v 'primitive)
-          ;; FIXME: We don't have the right primitive instance name
-          ;; ... but '#%kernel is usually right.
-          '|#%kernel|]
-         [else
+         [(or (eq? v 'constant) (eq? v 'mutable))
           ;; Local variable, so same as use-site
-          (variable-reference->instance vr #t)]))]))
+          (variable-reference->instance vr #t)]
+         [else
+          (or (#%ormap (lambda (table)
+                         (and (hash-ref (cdr table) v #f)
+                              (car table)))
+                       primitive-tables)
+              ;; Fallback, just in case
+              '|#%kernel|)]))]))
 
   (define (variable-reference-constant? vr)
     (let ([v (variable-reference-var-or-info vr)])
@@ -1138,6 +1149,7 @@
     (primitive-table
      variable-set!
      variable-set!/check-undefined
+     variable-set!/define
      variable-ref
      variable-ref/no-check
      make-instance-variable-reference

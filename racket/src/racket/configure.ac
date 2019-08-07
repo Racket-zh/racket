@@ -284,6 +284,8 @@ LIBRACKET_DEP=""
 EXE_SUFFIX=
 SO_SUFFIX=.so
 
+POST_LINKER="echo"
+
 MMM=3m
 MMM_INSTALLED=
 MMM_CAP_INSTALLED=
@@ -454,8 +456,9 @@ if test "$AR" = '' ; then
   fi
 fi
 if test "$ARFLAGS" = '' ; then 
-  ARFLAGS=ruv
+  ARFLAGS=rc
 fi
+SUB_CONFIGURE_EXTRAS="${SUB_CONFIGURE_EXTRAS} AR_FLAGS="'"'"${ARFLAGS}"'"'
 
 # If using gcc, we want all warnings:
 if test "$CC" = "gcc" ; then 
@@ -573,6 +576,7 @@ case "$host_os" in
     ;;
   netbsd*)
     LIBS="$LIBS -rdynamic"
+    POST_LINKER="paxctl +m"
     ;;
   irix*)
     enable_cgcdefault="yes"
@@ -599,6 +603,10 @@ case "$host_os" in
        ;;
       i386|i486|i586|i686)
        enable_parallel_by_default=yes
+       ;;
+      arm*)
+       EXTRA_GMP_OBJ="gmp_arm_gcc.o"
+       EXTRA_GMP_DEP='$(EXTRA_GMP_DEP_FILE)'
        ;;
       *)
        ;;
@@ -1436,6 +1444,7 @@ AC_SUBST(STRIP_LIB_DEBUG)
 AC_SUBST(CC_FOR_BUILD)
 AC_SUBST(REZ)
 AC_SUBST(MZLINKER)
+AC_SUBST(POST_LINKER)
 AC_SUBST(PLAIN_CC)
 AC_SUBST(DYN_CFLAGS)
 

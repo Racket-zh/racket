@@ -171,6 +171,9 @@
 (err/rt-test (exact? 'a))
 (err/rt-test (inexact? 'a))
 
+(test "1.0" number->string 1.0)
+(test "1.5e+100" number->string 1.5e+100)
+(test "1.5e-100" number->string 1.5e-100)
 (test "+inf.0" number->string +inf.0)
 (test "-inf.0" number->string -inf.0)
 (test "+nan.0" number->string +nan.0)
@@ -739,6 +742,9 @@
 (err/rt-test (inexact->exact +inf.0))
 (err/rt-test (inexact->exact -inf.0))
 (err/rt-test (inexact->exact +nan.0))
+#;(err/rt-test (begin (inexact->exact +inf.0) 'not-an-error))
+#;(err/rt-test (begin (inexact->exact -inf.0) 'not-an-error))
+#;(err/rt-test (begin (inexact->exact +nan.0) 'not-an-error))
 
 #reader "maybe-single.rkt"
 (when has-single-flonum?
@@ -848,7 +854,11 @@
 (test 0.25+0.0i / 1+0.0i 4+0.0i)
 (test 0 / 0 4+3i)
 (test 0.25+0.0i / 1e300+1e300i (* 4 1e300+1e300i))
+(test 0.25+0.0i / #e1e300+1e300i (* 4 1e300+1e300i))
+(test 0.25+0.0i / 1e300+1e300i (* 4 #e1e300+1e300i))
 (test 0.25+0.0i / 1e-300+1e-300i (* 4 1e-300+1e-300i))
+(test 0.25+0.0i / #e1e-300+1e-300i (* 4 1e-300+1e-300i))
+(test 0.25+0.0i / 1e-300+1e-300i (* 4 #e1e-300+1e-300i))
 (test 1/2-1/2i / 1+1i)
 (test 1/2+1/2i / 1-1i)
 (test 1/5-2/5i / 1+2i)
@@ -862,6 +872,7 @@
 (test 0.4-0.2i / 2.0+1.0i)
 (test 0.4+0.2i / 2.0-1.0i)
 (test 0.0+0.0i / 0.0+0.0i 1+1e-320i)
+(test 0.0+0.0i / 0.0+0.0i #e1+1e-320i)
 
 (test 3 / 1 1/3)
 (test -3 / 1 -1/3)
@@ -1523,6 +1534,7 @@
 (test -2.0 round -2.5)
 (test 4.0 round 3.5)
 (test -4.0 round -3.5)
+(test -0.0 round -0.5)
 
 (define (test-zero-ident f)
   (test 0.0 f 0.0)
@@ -1783,6 +1795,7 @@
 (test +1i sqrt -1)
 (test +2/3i sqrt -4/9)
 (test +1.0i sqrt -1.0)
+(test -0.0 sqrt -0.0)
 (test 1+1i sqrt +2i)
 (test 2+1i sqrt 3+4i)
 (test 2.0+0.0i sqrt 4+0.0i)
@@ -2131,8 +2144,54 @@
 (err/rt-test (atan 0 0) exn:fail:contract:divide-by-zero?)
 (err/rt-test (atan 0+i) exn:fail:contract:divide-by-zero?)
 (err/rt-test (atan 0-i) exn:fail:contract:divide-by-zero?)
-(test -inf.0 atan 0+1.0i)
-(test -inf.0 atan 0-1.0i)
+
+(when has-exact-zero-inexact-complex?
+  (test -inf.0 atan 0+1.0i)
+  (test -inf.0 atan 0-1.0i))
+
+(test 79.0+17710.0i z-round (* 100 (atan 0.0+1.0i)))
+(test 79.0-17710.0i z-round (* 100 (atan 0.0-1.0i)))
+(test 157.0+55.0i z-round (* 100 (atan 0.0+2.0i)))
+(test 157.0-55.0i z-round (* 100 (atan 0.0-2.0i)))
+(test -157.0+55.0i z-round (* 100 (atan -0.0+2.0i)))
+(test 134.0-40.0i z-round (* 100 (atan 1.0-2.0i)))
+(test 157.0+0.0i z-round (* 100 (atan 1.0-4e153i)))
+(test 157.0+0.0i z-round (* 100 (atan 1.0+4e153i)))
+(test -2.5e-154 imag-part (atan 1.0-4e153i))
+(test +2.5e-154 imag-part (atan 1.0+4e153i))
+(test 157.0+0.0i z-round (* 100 (atan 5e153+4e153i)))
+(test 125.0 round (* 1e156 (imag-part (atan 5e153+4e153i))))
+(test 157.0+0.0i z-round (* 100 (atan 4e153+4e153i)))
+(test 125.0 round (* 1e156 (imag-part (atan 4e153+4e153i))))
+
+#reader "maybe-single.rkt"
+(when has-single-flonum? 
+  (test 79.0f0+17710.0f0i z-round (* 100 (atan 0.0f0+1.0f0i))))
+
+(test 157.0-inf.0i z-round (* 100 (asin +inf.0)))
+(test -157.0+inf.0i z-round (* 100 (asin -inf.0)))
+(test 0.0+inf.0i z-round (* 100 (acos +inf.0)))
+(test 314.0-inf.0i z-round (* 100 (acos -inf.0)))
+(test 0.0-inf.0i asin -inf.0i)
+(test 157.0+inf.0i z-round (* 100 (acos -inf.0i)))
+
+(test 63.0+231.0i z-round (* 100 (asin 3+4i)))
+(test 63.0+231.0i z-round (* 100 (asin 3.0+4.0i)))
+(test 94.0-231.0i z-round (* 100 (acos 3+4i)))
+(test 94.0-231.0i z-round (* 100 (acos 3.0+4.0i)))
+
+(test 157.0-46300.0i z-round (* 100 (asin 6e200)))
+(test 0.0+46300.0i z-round (* 100 (acos 6e200)))
+
+#reader "maybe-single.rkt"
+(when has-single-flonum? 
+  (test 157.0f0-inf.fi z-round (* 100 (asin +inf.f)))
+  (test -157.0f0+inf.fi z-round (* 100 (asin -inf.f)))
+  (test 0.0f0+inf.fi z-round (* 100 (acos +inf.f)))
+  (test 314.0f0-inf.fi z-round (* 100 (acos -inf.f)))
+  (test 63.0f0+231.0f0i z-round (* 100 (asin 3.0f0+4.0f0i)))
+  (test 94.0f0-231.0f0i z-round (* 100 (acos 3.0f0+4.0f0i))))
+
 (test 1024.0 round (expt 2.0 10.0))
 (test 1024.0 round (expt -2.0 10.0))
 (test -512.0 round (expt -2.0 9.0))
@@ -2237,8 +2296,6 @@
 (test-inf-bad tan)
 (test-inf-bad sin)
 (test-inf-bad cos)
-(test-inf-bad asin)
-(test-inf-bad acos)
 
 (test 11/7 rationalize (inexact->exact (atan +inf.0 1)) 1/100)
 (test -11/7 rationalize (inexact->exact (atan -inf.0 1)) 1/100)
@@ -2290,15 +2347,16 @@
 (test 693.+3142.i z-round (* 1000 (log -2)))
 (test 1571.-1317.i z-round (* 1000 (asin 2)))
 (test -1571.+1317.i z-round (* 1000 (asin -2)))
-(test 0+3688.i z-round (* 1000 (acos 20)))
+(test 0.0+3688.i z-round (* 1000 (acos 20)))
 (test 3142.-3688.i z-round (* 1000 (acos -20)))
 
 (define (cs2 c) (+ (* (cos c) (cos c)) (* (sin c) (sin c))))
-(test 0.0 round (* 1000 (imag-part (cs2 2+3i))))
+(define (a-round v) (abs (round v)))
+(test 0.0 a-round (* 1000 (imag-part (cs2 2+3i))))
 (test 1000.0 round (* 1000 (real-part (cs2 2+3i))))
-(test 0.0 round (* 1000 (imag-part (cs2 -2+3i))))
+(test 0.0 a-round (* 1000 (imag-part (cs2 -2+3i))))
 (test 1000.0 round (* 1000 (real-part (cs2 -2+3i))))
-(test 0.0 round (* 1000 (imag-part (cs2 2-3i))))
+(test 0.0 a-round (* 1000 (imag-part (cs2 2-3i))))
 (test 1000.0 round (* 1000 (real-part (cs2 2-3i))))
 
 (test #t positive? (real-part (sqrt (- 1 (* 2+3i 2+3i)))))
@@ -2829,17 +2887,30 @@
 (test 120 integer-length (- (expt 2 120) 1))
 (test 121 integer-length (+ (expt 2 120) 1))
 
-; don't attempt to print numbers that are billions of bits long
-(test (+ (expt 2 30) 1) 'integer-length-vlarge-1
-  (integer-length (expt 2 (expt 2 30))))
-(test (- (expt 2 31) 63) 'integer-length-vlarge-2
-  (integer-length (expt 2 (- (expt 2 31) 64))))
+(define (avoid-big-allocation?)
+  ;; A Raspberry Pi running Linux is a likely too-small device,
+  ;; so at least detect that one:
+  (and (file-exists? "/proc/meminfo")
+       (call-with-input-file*
+        "/proc/meminfo"
+        (lambda (i)
+          (define m (regexp-match #rx"MemTotal: +([0-9]+) kB" i))
+          (and m
+               (< (string->number (bytes->string/utf-8 (cadr m)))
+                  (* 1.5 1024 1024)))))))
 
-; these will have bignum output on 32 bit machines
-(test (- (expt 2 31) 1) 'integer-length-vlarge-3
-  (integer-length (expt 2 (- (expt 2 31) 2))))
-(test (- (expt 2 31) 0) 'integer-length-overflow
-  (integer-length (expt 2 (- (expt 2 31) 1))))
+(unless (avoid-big-allocation?)
+  ; don't attempt to print numbers that are billions of bits long
+  (test (+ (expt 2 30) 1) 'integer-length-vlarge-1
+        (integer-length (expt 2 (expt 2 30))))
+  (test (- (expt 2 31) 63) 'integer-length-vlarge-2
+        (integer-length (expt 2 (- (expt 2 31) 64))))
+  
+  ; these will have bignum output on 32 bit machines
+  (test (- (expt 2 31) 1) 'integer-length-vlarge-3
+        (integer-length (expt 2 (- (expt 2 31) 2))))
+  (test (- (expt 2 31) 0) 'integer-length-overflow
+        (integer-length (expt 2 (- (expt 2 31) 1)))))
 
 (test "0" number->string 0)
 (test "1" number->string 1)

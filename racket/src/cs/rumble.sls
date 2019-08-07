@@ -89,6 +89,7 @@
           make-inspector
           make-sibling-inspector
           current-code-inspector
+          root-inspector ; not exported to Racket
 
           struct:exn exn exn? exn-message exn-continuation-marks
           struct:exn:break exn:break exn:break? exn:break-continuation
@@ -253,7 +254,7 @@
           make-hash make-hasheqv make-hasheq
           make-immutable-hash make-immutable-hasheqv make-immutable-hasheq
           make-weak-hash make-weak-hasheq make-weak-hasheqv
-          hash-ref hash-set hash-set! hash-remove hash-remove!
+          hash-ref hash-ref-key hash-set hash-set! hash-remove hash-remove!
           hash-for-each hash-map hash-copy hash-clear hash-clear!
           hash-iterate-first hash-iterate-next
           hash-iterate-key hash-iterate-value
@@ -375,6 +376,10 @@
           real->double-flonum
           real->single-flonum
           arithmetic-shift
+          bitwise-ior
+          bitwise-xor
+          bitwise-and
+          bitwise-not
           integer-sqrt
           integer-sqrt/remainder
           integer->integer-bytes
@@ -697,7 +702,14 @@
           mutex-acquire
           mutex-release
           threaded?
-          set-future-callbacks!)
+          set-future-callbacks!
+          install-primitives-table!
+          continuation-current-primitive
+
+          ;; compile-time use in "thread.sls"
+          current-atomic-virtual-register
+          end-atomic-virtual-register
+          current-future-virtual-register)
   (import (rename (chezpart)
                   [define define/no-lift])
 	  (rename (only (chezscheme) sleep)
@@ -756,6 +768,7 @@
   (include "rumble/bytes.ss")
   (include "rumble/string.ss")
   (include "rumble/char.ss")
+  (include "rumble/char-range.ss")
   (include "rumble/list.ss")
   (include "rumble/vector.ss")
   (include "rumble/box.ss")

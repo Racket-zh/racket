@@ -59,12 +59,9 @@
          get-original-error-port)
 
 (define (io-place-init! in-fd out-fd err-fd cust plumber)
-  (sandman-place-init!)
   (rktio-place-init!)
   (logger-init!)
   (shared-ltps-place-init!)
   (install-error-value->string-handler!)
   (init-current-directory!)
   (init-current-ports! in-fd out-fd err-fd cust plumber))
-
-(module main racket/base)

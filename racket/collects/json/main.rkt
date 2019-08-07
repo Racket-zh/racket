@@ -5,7 +5,7 @@
 
 ;; edited:
 ;; -- Matthias, organization in preparation for pretty-print
-;; -- Matthias, contracts 
+;; -- Matthias, contracts
 
 ;; -----------------------------------------------------------------------------
 ;; DEPENDENCIES
@@ -14,7 +14,7 @@
 (require syntax/readerr
          racket/contract)
 
-;; tests in: 
+;; tests in:
 ;; ~plt/pkgs/racket-test/tests/json/
 
 ;; docs in:
@@ -24,12 +24,12 @@
 ;; SERVICES
 
 (provide
- ;; Parameter 
- json-null ;; Parameter 
- 
- ;; Any -> Boolean 
+ ;; Parameter
+ json-null ;; Parameter
+
+ ;; Any -> Boolean
  jsexpr?
- 
+
  (contract-out
   [write-json
    (->* (any/c) ;; jsexpr? but dependent on #:null arg
@@ -102,7 +102,7 @@
       [(#\tab) "\\t"]
       [(#\\) "\\\\"]
       [(#\") "\\\""]
-      [else 
+      [else
        (define (u-esc n)
          (define str (number->string n 16))
          (define pad (case (string-length str)
@@ -341,7 +341,7 @@
     ;; used to reconstruct input for error reporting:
     (define (n->string n exp)
       (define s (number->string n))
-      (string->bytes/utf-8 
+      (string->bytes/utf-8
        (cond
          [(zero? exp) s]
          [else
@@ -398,7 +398,7 @@
       (define c (read-byte i))
       (cond
         [(digit-byte? c)
-         (read-exponent-rest n exp (to-number c))]
+         (read-exponent-rest n exp (to-number c) 1)]
         [(eqv? c (char->integer #\+))
          (read-exponent-more n mark #"+" exp 1)]
         [(eqv? c (char->integer #\-))
@@ -408,24 +408,24 @@
                                        (maybe-bytes c))
                          #:eof? (eof-object? c))]))
     ;; need at least one digit, still:
-    (define (read-exponent-more n mark mark2 exp sgn) 
+    (define (read-exponent-more n mark mark2 exp sgn)
       (define c (read-byte i))
       (cond
         [(digit-byte? c)
-         (read-exponent-rest n exp (* sgn (to-number c)))]
+         (read-exponent-rest n exp (to-number c) sgn)]
         [else (bad-input (bytes-append (n->string n exp)
                                        (bytes mark)
                                        mark2
                                        (maybe-bytes c))
                          #:eof? (eof-object? c))]))
     ;; more digits:
-    (define (read-exponent-rest n exp exp2)
+    (define (read-exponent-rest n exp exp2 sgn)
       (define c (peek-byte i))
       (cond
         [(digit-byte? c)
          (read-byte i)
-         (read-exponent-rest n exp (+ (* 10 exp2) (to-number c)))]
-        [else (exact->inexact (* n (expt 10 (+ exp exp2))))]))
+         (read-exponent-rest n exp (+ (* 10 exp2) (to-number c)) sgn)]
+        [else (exact->inexact (* n (expt 10 (+ exp (* sgn exp2)))))]))
     (start))
   ;;
   (define (read-json [top? #f])

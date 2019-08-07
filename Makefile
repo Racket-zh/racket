@@ -189,7 +189,7 @@ INSTALL_SETUP_ARGS = $(SELF_FLAGS_qq) $(PLT_SETUP_OPTIONS_qq) SETUP_MACHINE_FLAG
 
 BASE_INSTALL_TARGET = plain-base-install
 
-WIN32_BUILD_LEVEL = 3m
+WIN32_BUILD_LEVEL = all
 
 base:
 	if [ "$(CPUS)" = "" ] ; \
@@ -250,8 +250,9 @@ racket/src/build/cross/Makefile: racket/src/configure racket/src/cfg-racket rack
 # Racket-on-Chez build
 
 # If `RACKETCS_SUFFIX` is set to the empty string, the Racket-on-Chez
-# is build as `racket` instead of `racketcs`. Also, if `RACKET`
-# is not set, then `--enable-csdefault` is added to 
+# is build as `racket` instead of `racketcs`; also, if `RACKET`
+# is not set, then `--enable-csdefault` is added to configure
+# arguments
 RACKETCS_SUFFIX = cs
 
 # If `RACKET` is not set, then we bootstrap by first building the
@@ -267,6 +268,9 @@ SCHEME_SRC =
 DEFAULT_SCHEME_SRC = racket/src/build/ChezScheme
 MAKE_BUILD_SCHEME = checkout
 
+# Set `CHEZ_SCHEME_REPO` to change the repo that can be cloned
+# for Chez Scheme, and add `-b <branch>` to `GIT_CLONE_ARGS_qq`
+# to clone a particular branch from that repo
 CHEZ_SCHEME_REPO = https://github.com/racket/ChezScheme
 GIT_CLONE_ARGS_qq = -q --depth 1
 
@@ -303,7 +307,7 @@ cs-base:
 	$(MAKE) cs CS_SETUP_TARGET=nothing-after-base
 
 cs-as-is:
-	$(MAKE) cs CS_SETUP_TARGET=in-place-setup
+	$(MAKE) cs CS_SETUP_TARGET=in-place-setup MAKE_BUILD_SCHEME=finish
 
 CS_CONFIG_TARGET = no-cfg-cs
 
@@ -414,7 +418,7 @@ WIN32_CS_COPY_ARGS_EXCEPT_SUT = PKGS="$(PKGS)" $(WIN32_CS_COPY_ARGS_EXCEPT_PKGS_
 WIN32_CS_COPY_ARGS = PKGS="$(PKGS)" WIN32_CS_SETUP_TARGET=$(WIN32_CS_SETUP_TARGET) $(WIN32_CS_COPY_ARGS_EXCEPT_PKGS_SUT)
 WIN32_CS_COPY_ARGS_BOOT = $(WIN32_CS_COPY_ARGS) SETUP_BOOT_MODE="$(SETUP_BOOT_MODE)" WIN32_BUILD_LEVEL="$(WIN32_BUILD_LEVEL)"
 
-WIN32_BOOT_ARGS = SETUP_BOOT_MODE=--boot WIN32_BUILD_LEVEL=cgc WIN32_PLAIN_RACKET=racket\racketcgc
+WIN32_BOOT_ARGS = SETUP_BOOT_MODE=--boot WIN32_BUILD_LEVEL=3m WIN32_PLAIN_RACKET=racket\racket3m
 
 win32-cs:
 	IF "$(RACKET)" == "" $(MAKE) win32-racket-then-cs $(WIN32_BOOT_ARGS) $(WIN32_CS_COPY_ARGS)

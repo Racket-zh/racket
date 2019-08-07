@@ -8,7 +8,8 @@
          "evt.rkt"
          "semaphore.rkt"
          "parameter.rkt"
-         "sink.rkt")
+         "sink.rkt"
+         "exit.rkt")
 
 (provide current-custodian
          make-custodian
@@ -42,6 +43,9 @@
            set-root-custodian!
            create-custodian
            poll-custodian-will-executor))
+
+(module+ for-future
+  (provide set-custodian-future-callbacks!))
 
 ;; For `(struct custodian ...)`, see "custodian-object.rkt"
 
@@ -225,24 +229,27 @@
 
 ;; Called in atomic mode by the scheduler
 (define (check-queued-custodian-shutdown)
-  (unless (null? queued-shutdowns)
-    (host:disable-interrupts)
-    (host:mutex-acquire memory-limit-lock)
-    (define queued queued-shutdowns)
-    (set! queued-shutdowns
-          ;; Keep only custodians owned by other places
-          (for/list ([c (in-list queued)]
-                     #:unless (custodian-this-place? c))
-            (when (eq? (custodian-need-shutdown c) 'needed)
-              ;; Make sure custodian's place is polling for shutdowns:
-              (set-custodian-need-shutdown! c 'neeed/sent-wakeup)
-              (place-wakeup (custodian-place c)))
-            c))
-    (host:mutex-release memory-limit-lock)    
-    (host:enable-interrupts)
-    (for ([c (in-list queued)]
-          #:when (custodian-this-place? c))
-      (do-custodian-shutdown-all c))))
+  (cond
+    [(null? queued-shutdowns) #f]
+    [else
+     (host:disable-interrupts)
+     (host:mutex-acquire memory-limit-lock)
+     (define queued queued-shutdowns)
+     (set! queued-shutdowns
+           ;; Keep only custodians owned by other places
+           (for/list ([c (in-list queued)]
+                      #:unless (custodian-this-place? c))
+             (when (eq? (custodian-need-shutdown c) 'needed)
+               ;; Make sure custodian's place is polling for shutdowns:
+               (set-custodian-need-shutdown! c 'neeed/sent-wakeup)
+               (place-wakeup (custodian-place c)))
+             c))
+     (host:mutex-release memory-limit-lock)    
+     (host:enable-interrupts)
+     (for ([c (in-list queued)]
+           #:when (custodian-this-place? c))
+       (do-custodian-shutdown-all c))
+     #t]))
 
 (define place-ensure-wakeup! (lambda () #f)) ; call before enabling shutdowns
 (define place-wakeup-initial void)
@@ -258,7 +265,9 @@
 ;; In atomic mode
 (define (do-custodian-shutdown-all c)
   (unless (custodian-shut-down? c)
-    (set-custodian-shut-down?! c #t)
+    (set-custodian-shut-down! c)
+    (when (custodian-sync-futures? c)
+      (futures-sync-for-custodian-shutdown))
     (for ([(child callback) (in-hash (custodian-children c))])
       (if (procedure-arity-includes? callback 2)
           (callback child c)
@@ -269,7 +278,8 @@
         (semaphore-post-all sema)))
     (define p-cref (custodian-parent-reference c))
     (when p-cref
-      (unsafe-custodian-unregister c p-cref))))
+      (unsafe-custodian-unregister c p-cref))
+    (hash-remove! custodians-with-limits c)))
 
 (define (custodian-get-shutdown-sema c)
   (atomically
@@ -339,9 +349,14 @@
      (define old-limit (custodian-immediate-limit limit-cust))
      (when (or (not old-limit) (old-limit . > . need-amt))
        (set-custodian-immediate-limit! limit-cust need-amt)))
+   (hash-set! custodians-with-limits limit-cust #t)
    (host:mutex-acquire memory-limit-lock)
    (set! compute-memory-sizes (max compute-memory-sizes 1))
    (host:mutex-release memory-limit-lock)))
+
+;; Ensures that custodians with memory limits are not treated as
+;; inaccessible and merged:
+(define custodians-with-limits (make-hasheq))
 
 ;; ----------------------------------------
 
@@ -364,6 +379,15 @@
 
 ;; ----------------------------------------
 
+(define futures-sync-for-custodian-shutdown (lambda () (void)))
+(define future-scheduler-add-thread-custodian-mapping! (lambda (s ht) (void)))
+
+(define (set-custodian-future-callbacks! sync-shutdown add-custodian-mapping)
+  (set! futures-sync-for-custodian-shutdown sync-shutdown)
+  (set! future-scheduler-add-thread-custodian-mapping! add-custodian-mapping))
+
+;; ----------------------------------------
+
 ;; Disable interrupts before taking this lock, since it
 ;; guards values that are manipulated by a GC callback
 (define memory-limit-lock (host:make-mutex))
@@ -378,6 +402,12 @@
          (unless (zero? compute-memory-sizes)
            (host:call-with-current-place-continuation
             (lambda (starting-k)
+              ;; A place may have future pthreads, and each ptherad may
+              ;; be running a future that becomes to a particular custodian;
+              ;; build up a custodian-to-pthtread mapping in this table:
+              (define custodian-future-threads (make-hasheq))
+              (future-scheduler-add-thread-custodian-mapping! (place-future-scheduler initial-place)
+                                                              custodian-future-threads)
               ;; Get roots, which are threads and custodians, for all distinct accounting domains
               (define-values (roots custs) ; parallel lists: root and custodian to charge for the root
                 (let c-loop ([c initial-place-root-custodian] [pl initial-place] [accum-roots null] [accum-custs null])
@@ -410,6 +440,8 @@
                       [(place? (car roots))
                        (define pl (car roots))
                        (define c (place-custodian pl))
+                       (future-scheduler-add-thread-custodian-mapping! (place-future-scheduler pl)
+                                                                       custodian-future-threads)
                        (define-values (new-roots new-custs) (c-loop c pl accum-roots accum-custs))
                        (loop (cdr roots) local-accum-roots new-roots new-custs)]
                       [else
@@ -431,21 +463,28 @@
                 (set-custodian-memory-use! c (+ size (custodian-memory-use c))))
               ;; Merge child counts to parents:
               (define any-limits?
-                (let c-loop ([c root-custodian])
+                (let c-loop ([c initial-place-root-custodian])
                   (define gc-roots (custodian-gc-roots c))
-                  (define roots (if gc-roots
-                                    (hash-keys gc-roots)
-                                    null))
+                  (define roots (append
+                                 (hash-ref custodian-future-threads c null)
+                                 (if gc-roots
+                                     (hash-keys gc-roots)
+                                     null)))
                   (define any-limits?
                     (for/fold ([any-limits? #f]) ([root (in-list roots)]
-                                                  #:when (custodian? root))
-                      (define root-any-limits? (c-loop root))
-                      (set-custodian-memory-use! c (+ (custodian-memory-use root)
+                                                  #:when (or (custodian? root)
+                                                             (place? root)))
+                      (define next-c (if (custodian? root)
+                                         root
+                                         (place-custodian root)))
+                      (define root-any-limits? (c-loop next-c))
+                      (set-custodian-memory-use! c (+ (custodian-memory-use next-c)
                                                       (custodian-memory-use c)))
                       (or root-any-limits? any-limits?)))
                   (define use (custodian-memory-use c))
+                  (define old-limits (custodian-memory-limits c))
                   (define new-limits
-                    (for/list ([limit (in-list (custodian-memory-limits c))]
+                    (for/list ([limit (in-list old-limits)]
                                #:when (cond
                                         [((car limit) . <= . use)
                                          (queue-custodian-shutdown! (cdr limit))
@@ -453,6 +492,9 @@
                                         [else #t]))
                       limit))
                   (set-custodian-memory-limits! c new-limits)
+                  (when (and (pair? old-limits)
+                             (null? new-limits))
+                    (hash-remove! custodians-with-limits c))
                   (or any-limits? (pair? new-limits))))
               ;; If no limits are installed, decay demand for memory counts:
               (unless any-limits?
@@ -466,7 +508,7 @@
          (unless (custodian? c)
            (raise-argument-error 'current-memory-use "(or/c #f 'cumulative custodian?)" c))
          (cond
-           [(eq? c root-custodian) all]
+           [(eq? c initial-place-root-custodian) all]
            [else
             (when (atomically/no-interrupts
                    (host:mutex-acquire memory-limit-lock)
