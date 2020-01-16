@@ -1,7 +1,6 @@
 (module for '#%kernel
 
-  (#%require "more-scheme.rkt"
-             "misc.rkt"
+  (#%require "misc.rkt"
              "define.rkt"
              "letstx-scheme.rkt"
              "member.rkt"
@@ -16,7 +15,7 @@
                          "qqstx.rkt"
                          "define.rkt"
                          "member.rkt"
-                         "small-scheme.rkt"
+                         "define-et-al.rkt" "qq-and-or.rkt" "cond.rkt"
                          "stxcase-scheme.rkt"))
 
   (#%provide for/fold for*/fold
@@ -71,7 +70,7 @@
              in-weak-hash-values
              in-weak-hash-pairs
 
-             in-directory
+             (rename *in-directory in-directory)
 
              in-sequences
              in-cycle
@@ -2200,14 +2199,16 @@
     (lambda (stx)
       (syntax-case stx ()
         [[(id1 id2) (_ gen-expr)]
-         #'[(id1 id2) (in-parallel gen-expr (*in-naturals))]])))
+         #'[(id1 id2) (in-parallel gen-expr (*in-naturals))]]
+        [_ #f])))
 
   (define-sequence-syntax *in-value
     (lambda () #'in-value)
     (lambda (stx)
       (syntax-case stx ()
         [[(id) (_ expr)]
-         #'[(id) (:do-in ([(id) expr]) #t () #t () #t #f ())]])))
+         #'[(id) (:do-in ([(id) expr]) #t () #t () #t #f ())]]
+        [_ #f])))
 
   (define-sequence-syntax *in-producer
     (lambda () #'in-producer)
@@ -2247,7 +2248,8 @@
                ;; post guard
                #t
                ;; loop args
-               ())])])))
+               ())])]
+        [_ #f])))
 
   ;; Some iterators that are implemented using `*in-producer' (note: do not use
   ;; `in-producer', since in this module it is the procedure version).
@@ -2263,7 +2265,8 @@
                   (let ([r* r] [p* p])
                     (check-in-port r* p*)
                     (lambda () (r* p*)))
-                  eof)]])))
+                  eof)]]
+        [_ #f])))
 
   (define-sequence-syntax *in-lines
     (lambda () #'in-lines)
@@ -2276,7 +2279,8 @@
                   (let ([p* p] [mode* mode])
                     (check-in-lines p* mode*)
                     (lambda () (read-line p* mode*)))
-                  eof)]])))
+                  eof)]]
+        [_ #f])))
 
   (define-sequence-syntax *in-bytes-lines
     (lambda () #'in-bytes-lines)
@@ -2289,7 +2293,8 @@
                   (let ([p* p] [mode* mode])
                     (check-in-bytes-lines p* mode*)
                     (lambda () (read-bytes-line p* mode*)))
-                  eof)]])))
+                  eof)]]
+        [_ #f])))
 
   (define-sequence-syntax *in-input-port-bytes
     (lambda () #'in-input-port-bytes)
@@ -2300,7 +2305,8 @@
                   (let ([p* p])
                     (unless (input-port? p*) (in-input-port-bytes p*))
                     (lambda () (read-byte p*)))
-                  eof)]])))
+                  eof)]]
+        [_ #f])))
 
   (define-sequence-syntax *in-input-port-chars
     (lambda () #'in-input-port-chars)
@@ -2311,7 +2317,8 @@
                   (let ([p* p])
                     (unless (input-port? p*) (in-input-port-chars p*))
                     (lambda () (read-char p*)))
-                  eof)]])))
+                  eof)]]
+        [_ #f])))
 
   (define (dir-list full-d d acc)
     (for/fold ([acc acc]) ([f (in-list (reverse (sort (directory-list full-d) path<?)))])
@@ -2330,10 +2337,10 @@
 		  orig-dir null)
 	(directory-list init-dir)))
 
-  (define *in-directory
+  (define in-directory
     (case-lambda 
-     [() (*in-directory #f (lambda (d) #t))]
-     [(orig-dir) (*in-directory orig-dir (lambda (d) #t))]
+     [() (in-directory #f (lambda (d) #t))]
+     [(orig-dir) (in-directory orig-dir (lambda (d) #t))]
      [(orig-dir use-dir?)
       (define init-dir (current-directory))
       ;; current state of the sequence is a list of paths to produce; when
@@ -2352,12 +2359,12 @@
 	  #f
 	  #f)))]))
      
-  (define-sequence-syntax in-directory
-    (λ () #'*in-directory)
+  (define-sequence-syntax *in-directory
+    (λ () #'in-directory)
     (λ (stx)
        (syntax-case stx ()
-	 [((d) (_)) #'[(d) (*in-directory #f)]]
-	 [((d) (_ dir)) #'[(d) (*in-directory dir (lambda (d) #t))]]
+	 [((d) (_)) #'[(d) (in-directory #f)]]
+	 [((d) (_ dir)) #'[(d) (in-directory dir (lambda (d) #t))]]
 	 [((d) (_ dir use-dir?-expr))
 	  #'[(d) 
 	     (:do-in
@@ -2370,6 +2377,7 @@
 	      ([(d) (car l)])
 	      #true
 	      #true
-	      [(next-body l d init-dir use-dir?)])]])))
+	      [(next-body l d init-dir use-dir?)])]]
+	 [_ #f])))
 
   )

@@ -10,6 +10,7 @@
          "thread-group.rkt"
          "schedule-info.rkt"
          (submod "thread.rkt" scheduling)
+         (submod "sync.rkt" scheduling)
          "system-idle-evt.rkt"
          "exit.rkt"
          "future.rkt"
@@ -33,7 +34,9 @@
   (make-initial-thread (lambda ()
                          (set-place-host-roots! initial-place (host:current-place-roots))
                          (thunk)))
-  (poll-and-select-thread! 0))
+  (call-with-engine-completion
+   (lambda (done)
+     (poll-and-select-thread! 0))))
 
 ;; Initializes the thread system in a new place:
 (define (call-in-another-main-thread c thunk)
@@ -41,8 +44,9 @@
   (set-root-custodian! c)
   (init-system-idle-evt!)
   (init-future-place!)
-  (call-in-main-thread thunk)
-  (init-schedule-counters!))
+  (init-schedule-counters!)
+  (init-sync-place!)
+  (call-in-main-thread thunk))
 
 ;; ----------------------------------------
 
@@ -66,16 +70,22 @@
   (when poll-now?
     (check-external-events))
   (call-pre-poll-external-callbacks)
-  (check-place-activity)
+  (check-place-activity callbacks)
   (when (check-queued-custodian-shutdown)
     (when (thread-dead? root-thread)
       (force-exit 0)))
   (flush-future-log)
   (cond
-    [(and (null? callbacks)
-          (all-threads-poll-done?))
+    [(all-threads-poll-done?)
      ;; May need to sleep
      (cond
+       [(not (null? callbacks))
+        ;; Need to run atomic callbacks in some thread, so make one
+        (do-make-thread 'callbacks
+                        (lambda () (void))
+                        #:custodian #f
+                        #:at-root? #t)
+        (poll-and-select-thread! TICKS callbacks)]
        [(and (not poll-now?)
              (check-external-events))
         ;; Retry and reset counter for checking external events
@@ -109,20 +119,19 @@
   (current-thread/in-atomic t)
   (set-place-current-thread! current-place t)
   (set! thread-swap-count (add1 thread-swap-count))
-  (run-callbacks-in-engine
-   e callbacks
-   (lambda (e)
-     (let loop ([e e])
-       (end-implicit-atomic-mode)
-       (e
-        TICKS
-        (lambda ()
-          (check-for-break)
-          (when atomic-timeout-callback
-            (when (positive? (current-atomic))
-              (atomic-timeout-callback #f))))
-        (lambda (remaining-ticks . args)
-          (start-implicit-atomic-mode)
+  (run-callbacks-in-engine e callbacks t leftover-ticks))
+
+(define (swap-in-engine e t leftover-ticks)
+  (let loop ([e e])
+    (end-implicit-atomic-mode)
+    (e
+     TICKS
+     check-break-prefix
+     (lambda (e results remaining-ticks)
+       (start-implicit-atomic-mode)
+       (cond
+         [(not e)
+          ;; Thread completed
           (accum-cpu-time! t #t)
           (set-thread-future! t #f)
           (current-thread/in-atomic #f)
@@ -134,11 +143,13 @@
           (when (eq? root-thread t)
             (force-exit 0))
           (thread-did-work!)
-          (poll-and-select-thread! (- leftover-ticks (- TICKS remaining-ticks))))
-        (lambda (e remaining-ticks)
-          (start-implicit-atomic-mode)
+          (poll-and-select-thread! (- leftover-ticks (- TICKS remaining-ticks)))]
+         [else
+          ;; Thread continues
           (cond
             [(zero? (current-atomic))
+             (when (thread-dead? root-thread)
+               (force-exit 0))
              (define new-leftover-ticks (- leftover-ticks (- TICKS remaining-ticks)))
              (accum-cpu-time! t (new-leftover-ticks . <= . 0))
              (set-thread-future! t (current-future))
@@ -153,7 +164,13 @@
              ;; where host-system interrupts are not disabled (i.e.,
              ;; don't use `engine-block` instead of `engine-timeout`):
              (add-end-atomic-callback! engine-timeout)
-             (loop e)])))))))
+             (loop e)])])))))
+
+(define (check-break-prefix)
+  (check-for-break)
+  (when atomic-timeout-callback
+    (when (positive? (current-atomic))
+      (atomic-timeout-callback #f))))
 
 (define (maybe-done callbacks)
   (cond
@@ -166,19 +183,19 @@
      (poll-and-select-thread! 0 callbacks)]
     [(and (not (sandman-any-sleepers?))
           (not (any-idle-waiters?)))
-    ;; all threads done or blocked
-    (cond
-      [(thread-running? root-thread)
-       ;; we shouldn't exit, because the main thread is
-       ;; blocked, but it's not going to become unblocked;
-       ;; sleep forever or until a signal changes things
-       (process-sleep)
-       (poll-and-select-thread! 0)]
-      [else
-       (void)])]
-   [else
-    ;; try again, which should lead to `process-sleep`
-    (poll-and-select-thread! 0)]))
+     ;; all threads done or blocked
+     (cond
+       [(thread-running? root-thread)
+        ;; we shouldn't exit, because the main thread is
+        ;; blocked, but it's not going to become unblocked;
+        ;; sleep forever or until a signal changes things
+        (process-sleep)
+        (poll-and-select-thread! 0)]
+       [else
+        (void)])]
+    [else
+     ;; try again, which should lead to `process-sleep`
+     (poll-and-select-thread! 0)]))
 
 ;; Check for threads that have been suspended until a particular time,
 ;; etc., as registered with the sandman
@@ -194,9 +211,9 @@
 
 ;; Run callbacks within the thread for `e`, and don't give up until
 ;; the callbacks are done
-(define (run-callbacks-in-engine e callbacks k)
+(define (run-callbacks-in-engine e callbacks t leftover-ticks)
   (cond
-    [(null? callbacks) (k e)]
+    [(null? callbacks) (swap-in-engine e t leftover-ticks)]
     [else
      (define done? #f)
      (let loop ([e e])
@@ -207,12 +224,12 @@
           (run-callbacks callbacks)
           (set! done? #t)
           (engine-block))
-        (lambda args
-          (internal-error "thread ended while it should run callbacks atomically"))
-        (lambda (e remaining)
+        (lambda (e result remaining)
           (start-implicit-atomic-mode)
+          (unless e
+            (internal-error "thread ended while it should run callbacks atomically"))
           (if done?
-              (k e)
+              (swap-in-engine e t leftover-ticks)
               (loop e)))))]))
 
 ;; Run foreign "async-apply" callbacks, now that we're in some thread
@@ -224,7 +241,7 @@
 
 ;; ----------------------------------------
 
-;; Have we tried all threads without since most recently making
+;; Have we tried all threads since most recently making
 ;; progress on some thread?
 (define (all-threads-poll-done?)
   (= (hash-count poll-done-threads)

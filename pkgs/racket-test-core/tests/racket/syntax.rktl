@@ -1823,7 +1823,7 @@
                                   (q)))))))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; check that the compiler is not too agressive with `letrec' -> `let*'
+;; check that the compiler is not too aggressive with `letrec' -> `let*'
 
 (test "<undefined>\nready\n"
       get-output-string
@@ -2243,6 +2243,17 @@
         0)
        (f #f)))
    (λ args (void))))
+
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Check that `compile` works on non-serializable
+
+(let ([c (compile (let ([c #f])
+                    (lambda (v)
+                      (begin0 c (set! c v)))))])
+  (test #t values (compiled-expression? c))
+  (test #t procedure? (eval c))
+  (err/rt-test (write c (open-output-bytes))
+               exn:fail?))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

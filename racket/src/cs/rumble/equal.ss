@@ -73,7 +73,9 @@
                  (or (check-union-find ctx a b)
                      (if eql?
                          (and (eql? (car a) (car b))
-                              (eql? (cdr a) (cdr b)))
+                              (eql? (cdr a) (cdr b))
+                              ;; In case `eql?` doesn't return a boolean:
+                              #t)
                          (let ([ctx (deeper-context ctx)])
                            (and
                             (equal? (car a) (car b) ctx)
@@ -85,9 +87,18 @@
                           (immutable-box? b)))
                  (or (check-union-find ctx a b)
                      (if eql?
-                         (eql? (unbox orig-a) (unbox orig-b))
+                         (and (eql? (unbox orig-a) (unbox orig-b))
+                              #t)
                          (let ([ctx (deeper-context ctx)])
                            (equal? (unbox orig-a) (unbox orig-b) ctx)))))]
+           [(authentic-hash? a)
+            (and (authentic-hash? b)
+                 (or (check-union-find ctx a b)
+                     (hash=? orig-a orig-b
+                             (or eql?
+                                 (let ([ctx (deeper-context ctx)])
+                                   (lambda (a b)
+                                     (equal? a b ctx)))))))]
            [(record? a)
             (and (record? b)
                  ;; Check for `prop:impersonator-of`
@@ -115,7 +126,9 @@
                             (or (check-union-find ctx a b)
                                 (cond
                                  [eql?
-                                  (rec-equal? orig-a orig-b eql?)]
+                                  (rec-equal? orig-a orig-b (lambda (a b)
+                                                              ;; Make sure record sees only booleans:
+                                                              (and (eql? a b) #t)))]
                                  [(and (eq? mode 'chaperone-of?)
                                        (with-global-lock* (hashtable-contains? rtd-mutables (record-rtd a))))
                                   ;; Mutable records must be `eq?` for `chaperone-of?`
@@ -195,7 +208,7 @@
 ;; continuation maps `key-equality-wrap-key` to a key-wrapping
 ;; function.
 
-(define key-equality-wrap-key (gensym))
+(define key-equality-wrap-key '#{equality n1kcvqw4c9hh8t3fi3659ci94-0})
 
 ;; Looking in the continaution is expensive relative to `equal?`, so
 ;; look in a box as a quick pre-test. Multiple threads may increment

@@ -5,6 +5,7 @@
 
 (provide known-constant known-constant?
          known-consistent known-consistent?
+         known-authentic known-authentic?
          known-copy? known-copy known-copy-id
          known-literal known-literal? known-literal-value
          known-procedure known-procedure? known-procedure-arity-mask
@@ -46,13 +47,16 @@
 ;; being a predicate for a structure type
 (struct known-consistent () #:prefab #:omit-define-syntaxes #:super struct:known-constant)
 
+;; the value at run time is never an impersonator
+(struct known-authentic () #:prefab #:omit-define-syntaxes #:super struct:known-constant)
+
 ;; copy propagation --- use for local bindings or copies of primitives, only
 (struct known-copy (id) #:prefab #:omit-define-syntaxes #:super struct:known-constant)
 
 ;; literal for constant propagation:
 (struct known-literal (value) #:prefab #:omit-define-syntaxes #:super struct:known-consistent)
 
-;; procedure with arity mark; the procedure has to be a procedure from the host
+;; procedure with arity mask; the procedure has to be a procedure from the host
 ;; Scheme's perspective --- not an applicable struct or chaperoned procedure, which
 ;; means that parameters don't count
 (struct known-procedure (arity-mask) #:prefab #:omit-define-syntaxes #:super struct:known-consistent)
@@ -77,7 +81,7 @@
 ;; procedure that never raises an exception or otherwise captures/escapes the calling context
 (struct known-procedure/succeeds () #:prefab #:omit-define-syntaxes #:super struct:known-procedure/no-prompt)
 
-;; procedure that accepts any arguments and is functional so that it can be reordered
+;; procedure that accepts any arguments, returns a single value, and is functional so that it can be reordered
 (struct known-procedure/pure () #:prefab #:omit-define-syntaxes #:super struct:known-procedure/succeeds)
 
 ;; pure and folding:

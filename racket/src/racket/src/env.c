@@ -398,7 +398,7 @@ static void init_foreign(Scheme_Startup_Env *env)
 }
 
 /*========================================================================*/
-/*                     place-specific intialization                       */
+/*                     place-specific initialization                       */
 /*========================================================================*/
 
 static Scheme_Env *place_instance_init(void *stack_base, int initial_main_os_thread)
@@ -571,8 +571,6 @@ void scheme_place_instance_destroy(int force)
   else
     scheme_run_atexit_closers_on_all(force_more_closed_after);
 
-  scheme_run_post_custodian_shutdown();
-
   scheme_release_fd_semaphores();
   
   scheme_release_file_descriptor();
@@ -586,6 +584,7 @@ void scheme_place_instance_destroy(int force)
   GC_destruct_child_gc();
 #endif
   scheme_free_all_code();
+  scheme_clear_locale_cache();
   rktio_destroy(scheme_rktio);
 }
 

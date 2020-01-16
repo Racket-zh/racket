@@ -472,6 +472,28 @@
 (err/rt-test (procedure-reduce-keyword-arity void 1 null '(#:b #:a))
              (lambda (exn) (regexp-match #rx"position: 4th" (exn-message exn))))
 
+
+;; ----------------------------------------
+;; Check `procedure-extract-target`
+
+(let ()
+  (struct p (v)
+    #:property prop:procedure 0)
+
+  (define (f x [y 0]) x)
+
+  (define pf (p f))
+  (define ppf (p pf))
+
+  (test #t eq? f (procedure-extract-target pf))
+  (test #t eq? pf (procedure-extract-target ppf))
+
+  (define r (procedure-reduce-arity f 1))
+  (test #t not (procedure-extract-target r))
+
+  (define rpf (procedure-reduce-arity pf 1))
+  (test #t not (procedure-extract-target rpf)))
+
 ;; ----------------------------------------
 ;; Check mutation of direct-called keyword procedure
 
@@ -486,7 +508,7 @@
   (set! f #f))
 
 ;; ----------------------------------------
-;; Check mutation of direct-called keyword procedure
+;; Check name of keyword procedure
 
 (let ()
   (define (f1 #:x x) (list x))
@@ -645,6 +667,27 @@
   (set! f f)
   (test 'done f 'done)
   (test 'yes values top-level-variable-to-mutate-form-specialized))
+
+
+;; ----------------------------------------
+;; check some strange procedure names
+
+(define-syntax (as-unnamed stx)
+  (syntax-case stx ()
+    [(_ e)
+     (syntax-property #'e 'inferred-name (void))]))
+
+(test #f object-name (eval '(let ([x (as-unnamed (lambda (x) x))])
+                              x)))
+
+(test '|[| object-name (let ([|[| (lambda (x) x)])
+                          |[|))
+(test '|]| object-name (let ([|]| (lambda (x) x)])
+                          |]|))
+
+(eval '(define (return-a-function-that-returns-y)
+         (lambda () y)))
+(test #f object-name (return-a-function-that-returns-y))
 
 ;; ----------------------------------------
 

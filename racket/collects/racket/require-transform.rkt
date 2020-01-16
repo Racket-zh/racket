@@ -2,7 +2,9 @@
   (#%require "private/stxcase-scheme.rkt"
              "private/stx.rkt"
              "private/define-struct.rkt"
-             "private/small-scheme.rkt"
+             "private/define-et-al.rkt"
+             "private/qq-and-or.rkt"
+             "private/cond.rkt"
              "private/define.rkt"
              (for-template (only '#%kernel quote))
              (for-syntax '#%kernel))
@@ -83,7 +85,8 @@
                         (raise-argument-error 'current-require-module-path 
                                               "(or/c module-path-index? #f)"
                                               v))
-                      v)))
+                      v)
+                    'current-require-module-path))
 
   ;; a simplified version of `collapse-module-path-index', where
   ;; we don't have to normalize:

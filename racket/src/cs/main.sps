@@ -76,7 +76,7 @@
       [else (string->path s)]))
 
    (define (getenv-bytes str)
-     (environment-variables-ref (|#%app| current-environment-variables) (string->utf8 str)))
+     (environment-variables-ref (current-environment-variables) (string->utf8 str)))
 
    (define builtin-argc 9)
    (seq
@@ -322,10 +322,13 @@
          [else
           (set! remaining-command-line-arguments (vector->immutable-vector
                                                   (list->vector args)))
-          (when (and (null? args) (not (saw? saw 'non-config)))
+          (cond
+           [(and (null? args) (not (saw? saw 'non-config)))
             (set! repl? #t)
             (when text-repl?
-              (set! version? #t)))]))
+              (set! version? #t))]
+           [else
+            (no-init! saw)])]))
       ;; Dispatch on first argument:
       (if (null? args)
           (finish args saw)
@@ -359,7 +362,7 @@
               (let-values ([(file-name rest-args) (next-arg "file name" arg within-arg args)])
                 (set! loads (cons (lambda () (load file-name))
                                   loads))
-                (flags-loop rest-args (see saw 'non-config)))]
+                (flags-loop rest-args (see saw 'non-config 'top)))]
              [("-r" "--script")
               (let-values ([(file-name rest-args) (next-arg "file name" arg within-arg args)])
                 (set! loads (cons (lambda () (load file-name))
@@ -371,21 +374,26 @@
                 (set! loads
                       (cons
                        (lambda ()
-                         (call-with-values (lambda ()
-                                             (call-with-continuation-prompt
-                                              (lambda ()
-                                                (eval `(|#%top-interaction| . ,(read (open-input-string expr)))))
-                                              (default-continuation-prompt-tag)
-                                              (lambda (proc)
-                                                ;; continue escape to set error status:
-                                                (abort-current-continuation (default-continuation-prompt-tag) proc))))
-                           (lambda vals
-                             (for-each (lambda (v)
-                                         (|#%app| (|#%app| current-print) v)
-                                         (flush-output))
-                                       vals))))
+                         (define i (open-input-string expr))
+                         (let loop ()
+                           (define expr (read i))
+                           (unless (eof-object? expr)
+                             (call-with-values (lambda ()
+                                                 (call-with-continuation-prompt
+                                                  (lambda ()
+                                                    (eval `(|#%top-interaction| . ,expr)))
+                                                  (default-continuation-prompt-tag)
+                                                  (lambda (proc)
+                                                    ;; continue escape to set error status:
+                                                    (abort-current-continuation (default-continuation-prompt-tag) proc))))
+                               (lambda vals
+                                 (for-each (lambda (v)
+                                             (|#%app| (current-print) v)
+                                             (flush-output))
+                                           vals)))
+                             (loop))))
                        loads))
-                (flags-loop rest-args (see saw 'non-config)))]
+                (flags-loop rest-args (see saw 'non-config 'top)))]
              [("-k")
               (let*-values ([(n rest-args) (next-arg "starting and ending offsets" arg within-arg args)]
                             [(m rest-args) (next-arg "first ending offset" arg within-arg (cons "-k" rest-args))]
@@ -411,7 +419,7 @@
              [("-m" "--main")
               (set! loads (cons (lambda () (call-main))
                                 loads))
-              (flags-loop (cdr args) (see saw 'non-config))]
+              (flags-loop (cdr args) (see saw 'non-config 'top))]
              [("-i" "--repl") 
               (set! repl? #t)
               (set! version? #t)
@@ -425,7 +433,6 @@
               (flags-loop (cdr args) (see saw 'non-config))]
              [("-v" "--version") 
               (set! version? #t)
-              (no-init! saw)
               (flags-loop (cdr args) (see saw 'non-config))]
              [("-c" "--no-compiled")
               (set! compiled-file-paths '())
@@ -558,8 +565,8 @@
                 (loop (cons (cadr args) (cons (car args) (cddr args))))])]
              [else
               (cond
-               [(and (eqv? (string-ref arg 0) #\-)
-                     (> (string-length arg) 1))
+               [(and (> (string-length arg) 1)
+                     (eqv? (string-ref arg 0) #\-))
                 (cond
                  [(and (> (string-length arg) 2)
                        (not (eqv? (string-ref arg 1) #\-)))
@@ -582,7 +589,7 @@
        (call-with-values (lambda () (eval (datum->kernel-syntax
                                            (cons m (vector->list remaining-command-line-arguments)))))
          (lambda results
-           (let ([p (|#%app| current-print)])
+           (let ([p (current-print)])
              (for-each (lambda (v) (|#%app| p v)) results))))))
 
    ;; Set up GC logging
@@ -624,7 +631,7 @@
    (define peak-mem 0)
    (seq
     (set-garbage-collect-notify!
-     (let ([root-logger (|#%app| current-logger)])
+     (let ([root-logger (current-logger)])
        ;; This function can be called in any Chez Scheme thread
        (lambda (gen pre-allocated pre-allocated+overhead pre-time pre-cpu-time
                     post-allocated post-allocated+overhead post-time post-cpu-time)
@@ -653,9 +660,9 @@
                                ;; in interrupt:
                                #t)))))))))
    (seq
-    (|#%app| exit-handler
-     (let ([orig (|#%app| exit-handler)]
-           [root-logger (|#%app| current-logger)])
+    (exit-handler
+     (let ([orig (exit-handler)]
+           [root-logger (current-logger)])
        (lambda (v)
          (when (log-level? root-logger 'info 'GC)
            (log-message root-logger 'info 'GC
@@ -693,40 +700,40 @@
                '()))))
 
    (define (initialize-place!)
-     (|#%app| current-command-line-arguments remaining-command-line-arguments)
-     (|#%app| use-compiled-file-paths compiled-file-paths)
-     (|#%app| use-user-specific-search-paths user-specific-search-paths?)
-     (|#%app| load-on-demand-enabled load-on-demand?)
+     (current-command-line-arguments remaining-command-line-arguments)
+     (use-compiled-file-paths compiled-file-paths)
+     (use-user-specific-search-paths user-specific-search-paths?)
+     (load-on-demand-enabled load-on-demand?)
      (unless (eq? compile-target-machine (machine-type))
-       (|#%app| current-compile-target-machine compile-target-machine))
+       (current-compile-target-machine compile-target-machine))
      (boot)
      (when (and stderr-logging
                 (not (null? stderr-logging)))
-       (apply add-stderr-log-receiver! (|#%app| current-logger) stderr-logging))
+       (apply add-stderr-log-receiver! (current-logger) stderr-logging))
      (when (and stdout-logging
                 (not (null? stdout-logging)))
-       (apply add-stdout-log-receiver! (|#%app| current-logger) stdout-logging))
+       (apply add-stdout-log-receiver! (current-logger) stdout-logging))
      (when (and syslog-logging
                 (not (null? syslog-logging)))
-       (apply add-syslog-log-receiver! (|#%app| current-logger) syslog-logging))
+       (apply add-syslog-log-receiver! (current-logger) syslog-logging))
      (when host-collects-dir
        (set-host-collects-dir! host-collects-dir))
      (when host-config-dir
        (set-host-config-dir! host-config-dir))
      (cond
       [(eq? init-collects-dir 'disable)
-       (|#%app| use-collection-link-paths #f)
+       (use-collection-link-paths #f)
        (set-collects-dir! (build-path 'same))]
       [else
        (set-collects-dir! init-collects-dir)])
      (set-config-dir! init-config-dir)
      (unless (eq? init-collects-dir 'disable)
-       (|#%app| current-library-collection-links
+       (current-library-collection-links
         (find-library-collection-links))
-       (|#%app| current-library-collection-paths
+       (current-library-collection-paths
         (find-library-collection-paths collects-pre-extra (reverse rev-collects-post-extra))))
      (when compiled-roots-path-list-string
-       (|#%app| current-compiled-file-roots
+       (current-compiled-file-roots
         (let ([s (regexp-replace* "@[(]version[)]"
                                   compiled-roots-path-list-string
                                   (version))])
@@ -797,7 +804,7 @@
           (newline)))
 
       (when yield?
-        (|#%app| (|#%app| executable-yield-handler) exit-value))
+        (|#%app| (executable-yield-handler) exit-value))
 
       (exit exit-value))))
 

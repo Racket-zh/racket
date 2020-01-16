@@ -1437,7 +1437,15 @@ arguments:
 @racketblock[(->i ()
                   (#:x [x number?]
                    #:y [y (x) (>=/c x)])
-                  [result (x y) (and/c number? (>=/c (+ x y)))])]
+                  [result (x y)
+                   (and/c number?
+                          (if (and (number? x) (number? y))
+                              (>=/c (+ x y))
+                              any/c))])]
+The conditional in the range that tests @racket[_x] and @racket[_y]
+is necessary to cover the situation where @racket[_x] or @racket[_y]
+are not supplied by the calling context (meaning they might be bound
+to @racket[the-unsupplied-arg]).
 
 The contract expressions are not always evaluated in
 order. First, if there is no dependency for a given contract expression,
@@ -1455,11 +1463,11 @@ there is no dependency between two arguments (or the result and an
 argument), then the contract that appears earlier in the source text is
 evaluated first.
 
- If all of the identifier positions of the range
-contract are @racket[_]s (underscores), then the range contract expressions
-are evaluated when the function is called instead of when it returns.
-Otherwise, dependent range expressions are evaluated when the function
- returns.
+ If all of the identifier positions of a range contract with
+ a dependency are @racket[_]s (underscores), then the range
+ contract expressions are evaluated when the function is
+ called instead of when it returns. Otherwise, dependent
+ range expressions are evaluated when the function returns.
 
  If there are optional arguments that are not supplied, then
  the corresponding variables will be bound to a special value
@@ -2047,13 +2055,40 @@ positions and the @racket[define/contract] form for the negative ones.
   (eval:error (numbers->strings '(4.0 3.3 5.8)))
 ]}
 
+@defform*[[(struct/contract struct-id ([field contract-expr] ...)
+                                   struct-option ...)
+           (struct/contract struct-id super-struct-id
+                                   ([field contract-expr] ...)
+                                   struct-option ...)]]{
+Works like @racket[struct], except that the arguments to the constructor,
+accessors, and mutators are protected by contracts.  For the definitions of
+@racket[field] and @racket[struct-option], see @racket[struct].
+
+The @racket[struct/contract] form only allows a subset of the
+@racket[struct-option] keywords: @racket[#:mutable], @racket[#:transparent],
+@racket[#:auto-value], @racket[#:omit-define-syntaxes], @racket[#:property] and
+@racket[#:omit-define-values].
+
+@examples[#:eval (contract-eval) #:once
+(struct/contract fruit ([seeds number?]))
+(fruit 60)
+(eval:error (fruit #f))
+
+(struct/contract apple fruit ([type string?]))
+(apple 14 "golden delicious")
+(eval:error (apple 5 30))
+(eval:error (apple #f "granny smith"))
+]}
+
 @defform*[[(define-struct/contract struct-id ([field contract-expr] ...)
                                    struct-option ...)
            (define-struct/contract (struct-id super-struct-id)
                                    ([field contract-expr] ...)
                                    struct-option ...)]]{
-Works like @racket[define-struct], except that the arguments to the constructor,
-accessors, and mutators are protected by contracts.  For the definitions of
+Works like @racket[struct/contract], except that the syntax for supplying a
+@racket[super-struct-id] is different, and a @racket[_constructor-id] that
+has a @racketidfont{make-} prefix on @racket[struct-id] is implicitly
+supplied.  For the definitions of
 @racket[field] and @racket[struct-option], see @racket[define-struct].
 
 The @racket[define-struct/contract] form only allows a subset of the

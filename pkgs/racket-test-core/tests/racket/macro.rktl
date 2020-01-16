@@ -862,7 +862,7 @@
 (require 'm-check-varref-expand)
 
 ;; ----------------------------------------
-;; Check that a modul-level binding with 0 marks
+;; Check that a module-level binding with 0 marks
 ;;  but lexical context is found correctly with
 ;;  1 and 2 marks (test case by Carl):
 
@@ -2133,7 +2133,7 @@
       (require (for-template racket/base))
       (define (disarm s)
         (unless (syntax-tainted? (car (syntax-e (syntax-disarm s #f))))
-          (error "disarm suceeded!"))
+          (error "disarm succeeded!"))
         #''ok)
       (provide disarm)))
 
@@ -2338,7 +2338,7 @@
           (restore))))
 
 ;; ----------------------------------------
-;; Make sure somethign reasonable happens when a `for-syntax` `define`
+;; Make sure something reasonable happens when a `for-syntax` `define`
 ;; is seen via `local-expand` but is not preserved in the expansion
 
 (module module-compiles-but-does-not-visit racket/base
@@ -2414,6 +2414,81 @@
       (add1-indirect 10))))
 
 (test 11 dynamic-require ''syntax-local-bind-syntaxes-free-id-context 'result)
+
+;; ----------------------------------------
+;; Related to the above, make sure `syntax-local-value/immediate` resolves rename
+;; transformers in a context with first-class definition context bindings
+
+(module syntax-local-value-free-id-context racket/base
+  (require (for-syntax racket/base))
+  (provide result)
+  (begin-for-syntax
+    (struct indirect-rename-transformer (target-holder)
+      #:property prop:rename-transformer
+      (lambda (self) (syntax-local-value (indirect-rename-transformer-target-holder self)))))
+  (define-syntax (m stx)
+    (define intdef (syntax-local-make-definition-context))
+    (syntax-local-bind-syntaxes (list (syntax-local-introduce #'holder)) #'#'add1 intdef)
+    (syntax-local-bind-syntaxes (list (syntax-local-introduce #'add1-indirect))
+                                (syntax-local-introduce #'(indirect-rename-transformer #'holder))
+                                intdef)
+    (define-values [value target]
+      (syntax-local-value/immediate
+       (internal-definition-context-introduce intdef #'add1-indirect 'add)
+       #f
+       (list intdef)))
+    #`'#,(indirect-rename-transformer? value))
+  (define result (m)))
+
+(test #t dynamic-require ''syntax-local-value-free-id-context 'result)
+
+;; ----------------------------------------
+;; Ensure the expansion of a rename transformer is not `syntax-original?`
+
+(module rename-transformer-introduction-scope racket/base
+  (require (for-syntax racket/base))
+  (provide sym free-id=? original?)
+  (define x #f)
+  (define-syntax y (make-rename-transformer #'x))
+  (define-syntax (m stx)
+    (define expanded-y (syntax-local-introduce (local-expand #'y 'expression '())))
+    #`(values '#,(syntax-e expanded-y)
+              '#,(free-identifier=? expanded-y #'x)
+              '#,(syntax-original? expanded-y)))
+  (define-values (sym free-id=? original?) (m)))
+
+(test 'x dynamic-require ''rename-transformer-introduction-scope 'sym)
+(test #t dynamic-require ''rename-transformer-introduction-scope 'free-id=?)
+(test #f dynamic-require ''rename-transformer-introduction-scope 'original?)
+
+;; ----------------------------------------
+;; Make sure replacing scopes of binding on reference does not
+;; turn a non-`syntax-original?` identifier into a `syntax-original?`
+;; one
+
+(let ([m #'(module m racket/base
+             (let ()
+               (define x 10)
+               (define-syntax y
+                 (syntax-rules ()
+                   [(_) x]))
+               (+ (y)
+                  x)))])
+  (define found-it? #f)
+  (define (check s)
+    (cond
+      [(syntax? s)
+       (when (and (syntax-original? s)
+                  (eq? (syntax-e s) 'x))
+         (test #f = (syntax-line s) (+ (syntax-line m) 6))
+         (when (= (syntax-line s) (+ (syntax-line m) 7))
+           (set! found-it? #t)))
+       (check (syntax-e s))]
+    [(pair? s)
+     (check (car s))
+     (check (cdr s))]))
+  (check (expand m))
+  (test #t values found-it?))
 
 ;; ----------------------------------------
 

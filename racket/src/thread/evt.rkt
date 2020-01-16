@@ -83,13 +83,15 @@
 ;; If a poller does any work that can allow some thread to
 ;; become unblocked, then it must tell the scheduler via
 ;; `schedule-info-did-work!`.
-(struct poller (proc))
+(struct poller (proc)
+  #:authentic)
 
 ;; Provided to a `poller` function:
 (struct poll-ctx (poll?         ; whether events are being polled once (i.e., 0 timeout)
                   select-proc   ; callback to asynchronously select the event being polled
                   sched-info    ; instructions to the scheduler, such as timeouts
-                  [incomplete? #:mutable])) ; #t => getting back the same event does not imply a completed poll
+                  [incomplete? #:mutable]) ; #t => getting back the same event does not imply a completed poll
+  #:authentic)
 ;; If a `poller` callback keeps `select-proc` for asynchronous use,
 ;; then it should return a `control-state-evt` to ensure that
 ;; `select-proc` is not called if the event is abandoned.
@@ -135,7 +137,15 @@
 ;; semaphore was meanwhile posted). As another example, a
 ;; `nack-guard-evt`'s result uses `abandon-proc` to post to the NACK
 ;; event.
+;; Beware that it doesn't make sense to use `wrap-evt` around the
+;; `control-state-evt` or the `evt` inside for an asynchronously
+;; satisfied event (like the way that semaphores are implemented). The
+;; event may be selected asynchronously before a wrapper on the inner
+;; event is found, so that the result turns out to be an unwrapped
+;; event. Or the `interrupt-proc`, etc., callbacks may not be found
+;; early enough if the `control-state-evt` is wrapped.
 (struct control-state-evt (evt
+                           wrap-proc
                            interrupt-proc ; thunk for break/kill initiated or otherwise before `abandon-proc`
                            abandon-proc ; thunk for not selected, including break/kill complete
                            retry-proc) ; thunk for resume from break; return `(values _val _ready?)`
@@ -183,7 +193,8 @@
       [else (values #f the-never-evt)])))
 
 ;; Possible result from `evt-poll`:
-(struct delayed-poll (resume))
+(struct delayed-poll (resume)
+  #:authentic)
 
 (struct poller-evt (poller)
   #:property prop:evt (struct-field-index poller))

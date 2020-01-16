@@ -8,8 +8,8 @@
 static Scheme_Object *input_port_p (int, Scheme_Object *[]);
 static Scheme_Object *output_port_p (int, Scheme_Object *[]);
 static Scheme_Object *port_closed_p (int, Scheme_Object *[]);
-static Scheme_Object *current_input_port (int, Scheme_Object *[]);
 static Scheme_Object *string_port_p(int, Scheme_Object *[]);
+static Scheme_Object *current_input_port (int, Scheme_Object *[]);
 static Scheme_Object *current_output_port (int, Scheme_Object *[]);
 static Scheme_Object *current_error_port (int, Scheme_Object *[]);
 static Scheme_Object *make_input_port (int, Scheme_Object *[]);
@@ -221,6 +221,7 @@ scheme_init_port_fun(Scheme_Startup_Env *env)
   ADD_FOLDING_PRIM("file-stream-port?",      scheme_file_stream_port_p,  1, 1, 1, env);
   ADD_FOLDING_PRIM("string-port?",           string_port_p,              1, 1, 1, env);
   ADD_FOLDING_PRIM("terminal-port?",         scheme_terminal_port_p,     1, 1, 1, env);
+  ADD_FOLDING_PRIM("port-waiting-peer?",     scheme_port_waiting_peer_p, 1, 1, 1, env);
 
   ADD_NONCM_PRIM("port-closed?",             port_closed_p,          1, 1, env); 
   ADD_NONCM_PRIM("open-input-file",          open_input_file,        1, 3, env);
@@ -291,9 +292,9 @@ scheme_init_port_fun(Scheme_Startup_Env *env)
   ADD_NONCM_PRIM("port-commit-peeked",             peeked_read,                    3, 4, env);
   ADD_NONCM_PRIM("port-progress-evt",              progress_evt,                   0, 1, env);
   ADD_NONCM_PRIM("progress-evt?",                  is_progress_evt,                1, 2, env);
-  ADD_NONCM_PRIM("port-closed-evt",                closed_evt,                     0, 1, env);
+  ADD_NONCM_PRIM("port-closed-evt",                closed_evt,                     1, 1, env);
   ADD_NONCM_PRIM("write-bytes-avail-evt",          write_bytes_avail_evt,          1, 4, env);
-  ADD_NONCM_PRIM("write-special-evt",              write_special_evt,              2, 2, env);
+  ADD_NONCM_PRIM("write-special-evt",              write_special_evt,              1, 2, env);
   ADD_NONCM_PRIM("port-read-handler",              port_read_handler,              1, 2, env);
   ADD_NONCM_PRIM("port-display-handler",           port_display_handler,           1, 2, env);
   ADD_NONCM_PRIM("port-write-handler",             port_write_handler,             1, 2, env);

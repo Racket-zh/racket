@@ -30,12 +30,19 @@
 
 ;; "atomically" is atomic within a place; when a future-running
 ;; pthread tries to enter atomic mode, it is suspended
-(define-syntax-rule (atomically expr ...)
-  (begin
-    (start-atomic)
-    (begin0
-     (let () expr ...)
-     (end-atomic))))
+(define-syntax atomically
+  (syntax-rules (void)
+    [(_ expr ... (void)) ; `(void)` => no need for `begin0`
+     (begin
+       (start-atomic)
+       expr ...
+       (end-atomic))]
+    [(_ expr ...)
+     (begin
+       (start-atomic)
+       (begin0
+         (let () expr ...)
+         (end-atomic)))]))
 
 (define-syntax-rule (atomically/no-interrupts expr ...)
   (begin
@@ -105,7 +112,14 @@
 ;; no race with the scheduler
 (define (add-end-atomic-callback! cb)
   (host:disable-interrupts)
-  (end-atomic-callback (cons cb (end-atomic-callback)))
+  (define all-cbs (end-atomic-callback))
+  (let loop ([cbs all-cbs])
+    (cond
+      [(eq? cbs 0)
+       (end-atomic-callback (cons cb all-cbs))]
+      [else
+       (unless (eq? (car cbs) cb)
+         (loop (cdr cbs)))]))
   (host:enable-interrupts))
 
 ;; ----------------------------------------

@@ -164,13 +164,13 @@ Racket 的 @racket[and] 与 @racket[or] 为语法形式而非函数。与函数�
 @; Each @racket[_test-expr] is evaluated in order. If it produces
 @; @racket[#f], the corresponding @racket[_body]s are ignored, and
 @; evaluation proceeds to the next @racket[_test-expr]. As soon as a
-@; @racket[_test-expr] produces a true value, its @racket[_body]s
+@; @racket[_test-expr] produces a true value, the associated @racket[_body]s
 @; are evaluated to produce the result for the @racket[cond] form, and no
 @; further @racket[_test-expr]s are evaluated.
 
 每个 @racket[_test-expr] 都会按顺序求值。若它产生 @racket[#f]，那么其对应的
 @racket[_body] 就会被忽略，然后对下一个 @racket[_test-expr] 进行求值。只要
-@racket[_test-expr] 产生了真值，其 @racket[_body] 就会被求值并产生
+@racket[_test-expr] 产生了真值，其相应的 @racket[_body] 就会被求值并产生
 @racket[cond] 的结果，之后的 further @racket[_test-expr] 则不再被求值。
 
 @; The last @racket[_test-expr] in a @racket[cond] can be replaced by

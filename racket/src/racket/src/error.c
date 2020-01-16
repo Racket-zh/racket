@@ -273,7 +273,7 @@ Scheme_Config *scheme_init_error_escape_proc(Scheme_Config *config)
   %- = skip int
 
   %L = line number as intptr_t, -1 means no line
-  %R = get error numebr and string from rktio
+  %R = get error number and string from rktio
   %e = error number for strerror()
   %E = error number for platform-specific error string
   %Z = potential platform-specific error number; additional char*
@@ -538,7 +538,7 @@ static intptr_t sch_vsprintf(char *s, intptr_t maxlen, const char *msg, va_list 
 	  {
 	    int en, he, none = 0;
 	    char *es;
-            const char *errkind_str;
+            const char *errkind_str = NULL;
             Scheme_Object *err_kind = NULL;
             
 	    if (type == 'm') {
@@ -608,6 +608,8 @@ static intptr_t sch_vsprintf(char *s, intptr_t maxlen, const char *msg, va_list 
 #endif
 	      tlen = strlen(es) + 24;
 	      t = (const char *)scheme_malloc_atomic(tlen);
+
+              MZ_ASSERT(errkind_str);
 	      sprintf((char *)t, "%s; %s=%d", es, errkind_str, en);
 	      tlen = strlen(t);
               if (_errno_val) {
@@ -794,7 +796,7 @@ void scheme_init_error(Scheme_Startup_Env *env)
   scheme_raise_arity_error_proc =                  scheme_make_noncm_prim(raise_arity_error, "raise-arity-error", 2, -1);
   scheme_addto_prim_instance("raise-arity-error",  scheme_raise_arity_error_proc, env);
   ESCAPING_NONCM_PRIM("raise-arity-mask-error",     raise_arity_mask_error, 2, -1, env);
-  ESCAPING_NONCM_PRIM("raise-result-arity-error",   raise_result_arity_error, 2, -1, env);
+  ESCAPING_NONCM_PRIM("raise-result-arity-error",   raise_result_arity_error, 3, -1, env);
 
   ADD_PARAMETER("error-display-handler",       error_display_handler,      MZCONFIG_ERROR_DISPLAY_HANDLER,       env);
   ADD_PARAMETER("error-value->string-handler", error_value_string_handler, MZCONFIG_ERROR_PRINT_VALUE_HANDLER,   env);
@@ -4565,6 +4567,9 @@ static MZ_NORETURN void *do_raise_inside_barrier(void)
       /* return from uncaught-exception handler */
       p[0] = scheme_false;
       nested_exn_handler(scheme_make_pair(scheme_false, arg), 1, p);
+#ifndef MZ_PRECISE_RETURN_SPEC
+      return NULL;
+#endif
     }
   }
 }

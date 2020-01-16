@@ -1,6 +1,7 @@
 #lang racket/base
 (require "match.rkt"
-         "wrap.rkt")
+         "wrap.rkt"
+         "gensym.rkt")
 
 ;; Reduces closure allocation by lifting bindings that are only used
 ;; in calls that have the right number of arguments.
@@ -102,7 +103,7 @@
          (lift-in-expr? v))]
       [`(if ,tst ,thn ,els)
        (or (lift-in-expr? tst) (lift-in-expr? thn) (lift-in-expr? els))]
-      [`(with-continuation-mark ,key ,val ,body)
+      [`(with-continuation-mark* ,_ ,key ,val ,body)
        (or (lift-in-expr? key) (lift-in-expr? val) (lift-in-expr? body))]
       [`(quote ,_) #f]
       [`(#%variable-reference . ,_) (error 'internal-error "unexpected variable reference")]
@@ -143,7 +144,7 @@
       [`(quote . ,_) #f]
       [`(if ,tst ,thn ,els)
        (or (lift? tst) (lift? thn) (lift? els))]
-      [`(with-continuation-mark ,key ,val ,body)
+      [`(with-continuation-mark* ,_ ,key ,val ,body)
        (or (lift? key) (lift? val) (lift? body))]
       [`(set! ,_ ,rhs) (lift? rhs)]
       [`(#%variable-reference) #f]
@@ -229,10 +230,12 @@
        (reannotate v `(if ,(lift-in-expr tst)
                           ,(lift-in-expr thn)
                           ,(lift-in-expr els)))]
-      [`(with-continuation-mark ,key ,val ,body)
-       (reannotate v `(with-continuation-mark ,(lift-in-expr key)
-                                              ,(lift-in-expr val)
-                                              ,(lift-in-expr body)))]
+      [`(with-continuation-mark* ,mode ,key ,val ,body)
+       (reannotate v `(with-continuation-mark*
+                        ,mode
+                        ,(lift-in-expr key)
+                        ,(lift-in-expr val)
+                        ,(lift-in-expr body)))]
       [`(quote ,_) v]
       [`(#%variable-reference . ,_) (error 'internal-error "unexpected variable reference")]
       [`(set! ,id ,rhs)
@@ -310,7 +313,7 @@
               [frees+binds (compute-lifts! thn frees+binds lifts locals)]
               [frees+binds (compute-lifts! els frees+binds lifts locals)])
          frees+binds)]
-      [`(with-continuation-mark ,key ,val ,body)
+      [`(with-continuation-mark* ,_ ,key ,val ,body)
        (let* ([frees+binds (compute-lifts! key frees+binds lifts locals)]
               [frees+binds (compute-lifts! val frees+binds lifts locals)]
               [frees+binds (compute-lifts! body frees+binds lifts locals)])
@@ -519,8 +522,8 @@
         [`(quote . ,_) v]
         [`(if ,tst ,thn ,els)
          (reannotate v `(if ,(convert tst) ,(convert thn) ,(convert els)))]
-        [`(with-continuation-mark ,key ,val ,body)
-         (reannotate v `(with-continuation-mark ,(convert key) ,(convert val) ,(convert body)))]
+        [`(with-continuation-mark* ,mode ,key ,val ,body)
+         (reannotate v `(with-continuation-mark* ,mode ,(convert key) ,(convert val) ,(convert body)))]
         [`(set! ,id ,rhs)
          (define info (and (hash-ref lifts (unwrap id) #f)))
          (cond
@@ -590,7 +593,7 @@
            (define new-rhs (convert-lifted-calls-in-expr rhs lifts frees empties))
            (cond
              [(indirected? (hash-ref lifts (unwrap id) #f))
-              `[,(gensym) (unsafe-set-box*! ,id ,new-rhs)]]
+              `[,(deterministic-gensym "seq") (unsafe-set-box*! ,id ,new-rhs)]]
              [else `[,id ,new-rhs]])))
        (define new-bindings
          (if (null? bindings)
@@ -618,9 +621,17 @@
   ;; Create bindings for lifted functions, adding new arguments
   ;; as the functions are lifted
   (define (extract-lifted-bindings lifts empties)
-    (for/list ([(f proc) (in-hash lifts)]
-               #:when (liftable? proc))
-      (let* ([new-args (liftable-frees proc)]
+    (define liftables
+      ;; Improve determinsism by sorting liftables:
+      (sort (for/list ([(f proc) (in-hash lifts)]
+                       #:when (liftable? proc))
+              (cons f proc))
+            symbol<?
+            #:key car))
+    (for/list ([f+proc (in-list liftables)])
+      (let* ([f (car f+proc)]
+             [proc (cdr f+proc)]
+             [new-args (liftable-frees proc)]
              [frees (for/hash ([arg (in-list new-args)])
                       (values arg #t))]
              [rhs (liftable-expr proc)])
@@ -634,7 +645,6 @@
                                                  [body (in-list bodys)])
                                         (let ([body (convert-lifted-calls-in-seq/box-mutated body args lifts frees empties)])
                                           `[,(append new-args args) . ,body]))))])])))
-
 
   ;; ----------------------------------------
   ;; Helpers
@@ -747,14 +757,15 @@
   (define (lift-if-empty v lifts empties new-v)
     (cond
       [(hash-ref lifts v #f)
-       (define id (gensym 'procz))
+       (define id (deterministic-gensym "procz"))
        (set-box! empties (cons `[,id ,new-v] (unbox empties)))
        id]
       [else new-v]))
-   
+
   ;; ----------------------------------------
   ;; Go
   
   (if (lift-in? v)
-      (lift-in v)
+      (with-deterministic-gensym
+        (lift-in v))
       v))

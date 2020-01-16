@@ -143,7 +143,7 @@ static void init_iconv()
       iconv_errno = (errno_proc_t)GetProcAddress(m, "_errno");
     if (!iconv_errno) {
       /* The iconv.dll distributed with Racket links to msvcrt.dll.
-	 It's a slighly dangerous assumption that whatever iconv we
+	 It's a slightly dangerous assumption that whatever iconv we
 	 found also uses msvcrt.dll. */
       m = LoadLibraryW(L"msvcrt.dll");
       if (m) {
@@ -505,6 +505,11 @@ rktio_convert_result_t *rktio_convert_in(rktio_t *rktio,
   r->converted = converted;
 
   return r;
+}
+
+void rktio_convert_reset(rktio_t *rktio, rktio_converter_t *cvt)
+{
+  (void)iconv(cvt->cd, NULL, NULL, NULL, NULL);
 }
 
 /*============================================================*/

@@ -3,6 +3,7 @@
          "check.rkt"
          "../common/queue.rkt"
          "internal-error.rkt"
+         "host.rkt"
          "atomic.rkt"
          "parameter.rkt"
          "waiter.rkt"
@@ -29,10 +30,12 @@
          unsafe-semaphore-wait)
 
 (struct semaphore queue ([count #:mutable]) ; -1 => non-empty queue
+  #:authentic
+  #:property host:prop:unsafe-authentic-override #t ; allow evt chaperone
   #:property
   prop:evt
   (poller (lambda (s poll-ctx)
-            (semaphore-wait/poll s poll-ctx))))
+            (semaphore-wait/poll s s poll-ctx))))
 (define count-field-pos 2) ; used with `unsafe-struct*-cas!`
 
 (struct semaphore-peek-evt (sema)
@@ -40,6 +43,7 @@
   prop:evt
   (poller (lambda (sp poll-ctx)
             (semaphore-wait/poll (semaphore-peek-evt-sema sp)
+                                 sp
                                  poll-ctx
                                  #:peek? #t
                                  #:result sp))))
@@ -64,15 +68,15 @@
   (unsafe-semaphore-post s))
 
 (define (unsafe-semaphore-post s)
-  (define c (if (impersonator? s)
-                -1
-                (semaphore-count s)))
+  (define c (semaphore-count s))
   (cond
     [(and (c . >= . 0)
           (unsafe-struct*-cas! s count-field-pos c (add1 c)))
      (void)]
     [else
-     (atomically (semaphore-post/atomic s))]))
+     (atomically
+      (semaphore-post/atomic s)
+      (void))]))
 
 ;; In atomic mode:
 (define (semaphore-post/atomic s)
@@ -99,7 +103,8 @@
 
 (define (semaphore-post-all s)
   (atomically
-   (semaphore-post-all/atomic s)))
+   (semaphore-post-all/atomic s)
+   (void)))
 
 ;; In atomic mode:
 (define (semaphore-any-waiters? s)
@@ -124,9 +129,7 @@
   (unsafe-semaphore-wait s))
 
 (define (unsafe-semaphore-wait s)
-  (define c (if (impersonator? s)
-                -1
-                (semaphore-count s)))
+  (define c (semaphore-count s))
   (cond
     [(and (positive? c)
           (unsafe-struct*-cas! s count-field-pos c (sub1 c)))
@@ -148,16 +151,15 @@
            (lambda ()
              (queue-remove-node! s n)
              (when (queue-empty? s)
-               (set-semaphore-count! s 0))) ; allow CAS again
-           ;; This callback is used, in addition to the previous one, if
-           ;; the thread receives a break signal but doesn't escape
-           ;; (either because breaks are disabled or the handler
-           ;; continues), if if the interrupt was to suspend and the thread
-           ;; is resumed:
-           (lambda () (semaphore-wait s)))])))]))
+               (set-semaphore-count! s 0)) ; allow CAS again
+             ;; This callback is used if the thread receives a break
+             ;; signal but doesn't escape (either because breaks are
+             ;; disabled or the handler continues), or if the
+             ;; interrupt was to suspend and the thread is resumed:
+             (lambda () (unsafe-semaphore-wait s))))])))]))
 
 ;; In atomic mode
-(define (semaphore-wait/poll s poll-ctx
+(define (semaphore-wait/poll s self poll-ctx
                              #:peek? [peek? #f]
                              #:result [result s])
   ;; Similar to `semaphore-wait, but as called by `sync`,
@@ -170,7 +172,7 @@
       (set-semaphore-count! s (sub1 c)))
     (values (list result) #f)]
    [(poll-ctx-poll? poll-ctx)
-    (values #f never-evt)]
+    (values #f self)]
    [else
     (define w (if peek?
                   (semaphore-peek-select-waiter (poll-ctx-select-proc poll-ctx))
@@ -181,19 +183,19 @@
     ;; event through a callback. Pair the event with a nack callback
     ;; to get back out of line.
     (values #f
-            (wrap-evt
-             (control-state-evt async-evt
-                                (lambda ()
-                                  (assert-atomic-mode)
-                                  (queue-remove-node! s n)
-                                  (when (queue-empty? s)
-                                    (set-semaphore-count! s 0))) ; allow CAS again
-                                void
-                                (lambda ()
-                                  ;; Retry: decrement or requeue
-                                  (assert-atomic-mode)
-                                  (define c (semaphore-count s))
-                                  (cond
+            (control-state-evt async-evt
+                               (lambda (v) result)
+                               (lambda ()
+                                 (assert-atomic-mode)
+                                 (queue-remove-node! s n)
+                                 (when (queue-empty? s)
+                                   (set-semaphore-count! s 0))) ; allow CAS again
+                               void
+                               (lambda ()
+                                 ;; Retry: decrement or requeue
+                                 (assert-atomic-mode)
+                                 (define c (semaphore-count s))
+                                 (cond
                                    [(positive? c)
                                     (unless peek?
                                       (set-semaphore-count! s (sub1 c)))
@@ -201,8 +203,7 @@
                                    [else
                                     (set! n (queue-add! s w))
                                     (set-semaphore-count! s -1) ; so CAS not tried for `semaphore-post`
-                                    (values #f #f)])))
-             (lambda (v) result)))]))
+                                    (values #f #f)]))))]))
 
 ;; Called only when it should immediately succeed:
 (define (semaphore-wait/atomic s)

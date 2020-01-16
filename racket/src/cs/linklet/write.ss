@@ -20,14 +20,18 @@
        [(not i) (values ht cross-machine)]
        [else
         (let-values ([(key v) (hash-iterate-key+value orig-ht i)])
-          (let ([new-v (if (and (linklet? v)
-                                (pair? (linklet-paths v)))
+          (when (linklet? v) (check-fasl-preparation v))
+          (let ([new-v (cond
+                        [(linklet? v)
+                         (cond
+                          [(pair? (linklet-paths v))
                            (adjust-cross-perparation
                             (set-linklet-paths
                              v
                              (map path->compiled-path
-                                  (linklet-paths v))))
-                           v)])
+                                  (linklet-paths v))))]
+                          [else (adjust-cross-perparation v)])]
+                        [else v])])
             (when (linklet? new-v)
               (linklet-pack-exports-info! new-v))
             (let ([new-ht (if (eq? v new-v)
@@ -42,7 +46,21 @@
 
 ;; Before fasl conversion, change 'cross or 'faslable-unsafe to 'faslable
 (define (adjust-cross-perparation l)
-  (let ([p (linklet-preparation l)])
-    (if (or (pair? p) (eq? p 'faslable-unsafe))
-        (set-linklet-preparation l 'faslable)
-        l)))
+  (adjust-linklet-compress
+   (let ([p (linklet-preparation l)])
+     (if (or (pair? p) (eq? p 'faslable-unsafe))
+         (set-linklet-preparation l 'faslable)
+         l))))
+
+(define (adjust-linklet-compress l)
+  (if (or compress-code?
+          (bytevector-uncompressed-fasl? (linklet-code l)))
+      l
+      (set-linklet-code l
+                        (bytevector-uncompress (linklet-code l))
+                        (linklet-preparation l))))
+
+(define (check-fasl-preparation l)
+  (case (linklet-preparation l)
+    [(callable lazy)
+     (raise-arguments-error 'write "linklet is not serializable")]))

@@ -76,6 +76,8 @@ static Scheme_Object *udp_write_ready_evt(int argc, Scheme_Object *argv[]);
 static Scheme_Object *udp_read_evt(int argc, Scheme_Object *argv[]);
 static Scheme_Object *udp_write_evt(int argc, Scheme_Object *argv[]);
 static Scheme_Object *udp_write_to_evt(int argc, Scheme_Object *argv[]);
+static Scheme_Object *udp_ttl(int argc, Scheme_Object *argv[]);
+static Scheme_Object *udp_set_ttl(int argc, Scheme_Object *argv[]);
 static Scheme_Object *udp_multicast_loopback_p(int argc, Scheme_Object *argv[]);
 static Scheme_Object *udp_multicast_set_loopback(int argc, Scheme_Object *argv[]);
 static Scheme_Object *udp_multicast_ttl(int argc, Scheme_Object *argv[]);
@@ -138,6 +140,9 @@ void scheme_init_network(Scheme_Startup_Env *env)
   ADD_PRIM_W_ARITY  ( "udp-receive!-evt"          , udp_read_evt             , 2 , 4 , env) ;
   ADD_PRIM_W_ARITY  ( "udp-send-evt"              , udp_write_evt            , 2 , 4 , env) ;
   ADD_PRIM_W_ARITY  ( "udp-send-to-evt"           , udp_write_to_evt         , 4 , 6 , env) ;
+
+  ADD_PRIM_W_ARITY  ( "udp-ttl"                   , udp_ttl        , 1 , 1 , env) ;
+  ADD_PRIM_W_ARITY  ( "udp-set-ttl!"              , udp_set_ttl    , 2 , 2 , env) ;
 
   ADD_PRIM_W_ARITY  ( "udp-multicast-loopback?"   , udp_multicast_loopback_p , 1 , 1 , env) ;
   ADD_PRIM_W_ARITY  ( "udp-multicast-set-loopback!", udp_multicast_set_loopback,2, 2 , env) ;
@@ -468,7 +473,8 @@ tcp_in_buffer_mode(Scheme_Port *p, int mode)
 
 static intptr_t tcp_do_write_string(Scheme_Output_Port *port, 
                                     const char *s, intptr_t offset, intptr_t len, 
-                                    int rarely_block, int enable_break)
+                                    int rarely_block, int enable_break,
+                                    int drop_buffer_on_error)
 {
   /* We've already checked for buffering before we got here. */
   /* If rarely_block is 1, it means only write as much as
@@ -492,7 +498,9 @@ static intptr_t tcp_do_write_string(Scheme_Output_Port *port,
       if (rarely_block)
 	return sent;
       else
-	sent += tcp_do_write_string(port, s, offset + sent, len - sent, 0, enable_break);
+	sent += tcp_do_write_string(port, s, offset + sent, len - sent,
+                                    0, enable_break,
+                                    drop_buffer_on_error);
     }
   }
 
@@ -524,10 +532,19 @@ static intptr_t tcp_do_write_string(Scheme_Output_Port *port,
     goto top;
   }
 
-  if (sent == RKTIO_WRITE_ERROR)
+  if (sent == RKTIO_WRITE_ERROR) {
+    if (drop_buffer_on_error) {
+      /* See "Drop unsuccessfully flushed bytes" in "port.c" for a
+         rationale (although TCP ports are not automatically
+         registered with a plumber). */
+      data->b.out_bufpos = 0;
+      data->b.out_bufmax = 0;
+    }
+
     scheme_raise_exn(MZEXN_FAIL_NETWORK,
 		     "tcp-write: error writing\n"
                      "  system error: %R");
+  }
 
   return sent;
 }
@@ -548,7 +565,8 @@ static int tcp_flush(Scheme_Output_Port *port,
     }
     amt = tcp_do_write_string(port, data->b.out_buffer, data->b.out_bufpos, 
 			      data->b.out_bufmax - data->b.out_bufpos,
-			      rarely_block, enable_break);
+			      rarely_block, enable_break,
+                              1);
     flushed += amt;
     data->b.out_bufpos += amt;
     if (rarely_block && (data->b.out_bufpos < data->b.out_bufmax))
@@ -599,7 +617,7 @@ static intptr_t tcp_write_string(Scheme_Output_Port *port,
   }
 
   /* When we get here, the buffer is empty */
-  return tcp_do_write_string(port, s, offset, len, rarely_block, enable_break);
+  return tcp_do_write_string(port, s, offset, len, rarely_block, enable_break, 0);
 }
 
 static void tcp_close_output(Scheme_Output_Port *port)
@@ -875,8 +893,12 @@ static int tcp_check_connect(Connect_Progress_Data *pd, Scheme_Schedule_Info *si
   if (rktio_poll_connect_ready(scheme_rktio, pd->connect))
     return 1;
 
-  if (pd->trying_s)
+  if (pd->trying_s) {
+    /* Even though we don't currently use the semaphore for blocking,
+       registering with the semaphore table seems to avoid a problem
+       with `rktio_poll_add_connect` not working, at least on Mac OS. */
     check_fd_sema(pd->trying_s, MZFD_CREATE_WRITE, sinfo, NULL);
+  }
 
   return 0;
 }
@@ -1669,7 +1691,7 @@ void scheme_close_socket_fd(intptr_t fd)
 /*                                 UDP                                    */
 /*========================================================================*/
 
-/* Based on a design and implemenation by Eduardo Cavazos. */
+/* Based on a design and implementation by Eduardo Cavazos. */
 
 typedef struct Scheme_UDP_Evt {
   Scheme_Object so; /* scheme_udp_evt_type */
@@ -2421,6 +2443,48 @@ static void udp_check_open(char const *name, int argc, Scheme_Object *argv[])
                      name, udp);
   }
 }
+
+static Scheme_Object *
+udp_ttl(int argc, Scheme_Object *argv[])
+{
+  Scheme_UDP *udp = (Scheme_UDP *) argv[0];
+  int r;
+
+  udp_check_open("udp-ttl", argc, argv);
+
+  r = rktio_udp_get_ttl(scheme_rktio, udp->s);
+
+  if (r == RKTIO_PROP_ERROR)
+    scheme_raise_exn(MZEXN_FAIL_NETWORK,
+                     "udp-ttl: getsockopt failed\n"
+                     "  system error: %R");
+
+  return scheme_make_integer(r);
+}
+
+static Scheme_Object *
+udp_set_ttl(int argc, Scheme_Object *argv[])
+{
+  Scheme_UDP *udp = (Scheme_UDP *)argv[0];
+
+  if (!SCHEME_UDPP(argv[0]))
+    scheme_wrong_contract("udp-set-ttl!", "udp?", 0, argc, argv);
+
+  if (!SCHEME_INTP(argv[1]) || (SCHEME_INT_VAL(argv[1]) < 0) || (SCHEME_INT_VAL(argv[1]) >= 256)) {
+    scheme_wrong_contract("udp-set-ttl!", "byte?", 1, argc, argv);
+    return NULL;
+  }
+
+  udp_check_open("udp-set-ttl!", argc, argv);
+
+  if (!rktio_udp_set_ttl(scheme_rktio, udp->s, SCHEME_INT_VAL(argv[1])))
+    scheme_raise_exn(MZEXN_FAIL_NETWORK,
+                     "udp-set-ttl!: setsockopt failed\n"
+                     "  system error: %R");
+
+  return scheme_void;
+}
+
 
 static Scheme_Object *
 udp_multicast_loopback_p(int argc, Scheme_Object *argv[])

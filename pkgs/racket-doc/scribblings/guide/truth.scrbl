@@ -125,7 +125,7 @@ Racket 的序对数据类型和它与列表的关系，连同打印时的点号�
 
 @interaction[
 (eval:alts (@#,racket[quote] ("red" "green" "blue")) '("red" "green" "blue"))
-(eval:alts (@#,racket[quote] ((1) (2 3) (4))) '((1) (2 3) (4)))
+(eval:alts (@#,racket[quote] ((1) (2 3) (4))) '((1) (2 4) (4)))
 (eval:alts (@#,racket[quote] ()) '())
 ]
 

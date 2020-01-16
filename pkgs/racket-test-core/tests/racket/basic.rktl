@@ -286,6 +286,12 @@
 (err/rt-test (list-tail '(1) 2) exn:application:mismatch?)
 (err/rt-test (list-tail '(1 2 . 3) 3) exn:application:mismatch?)
 
+(err/rt-test (car 0) exn:fail:contract? #rx"car: contract violation.*expected: pair[?].*given: 0")
+(err/rt-test (cdr 0) exn:fail:contract? #rx"cdr: contract violation.*expected: pair[?].*given: 0")
+(err/rt-test (cadr 0) exn:fail:contract? #rx"cadr: contract violation.*expected: .cons/c any/c pair[?]..*given: 0")
+(err/rt-test (cdadr 0) exn:fail:contract? #rx"cdadr: contract violation.*expected: .cons/c any/c .cons/c pair[?] any/c..*given: 0")
+(err/rt-test (cdadar 0) exn:fail:contract? #rx"cdadar: contract violation.*expected: .cons/c .cons/c any/c .cons/c pair[?] any/c.. any/c.*given: 0")
+
 (define (test-mem memq memq-name)
   (test '(a b c) memq 'a '(a b c))
   (test '(b c) memq 'b '(a b c))
@@ -427,6 +433,10 @@
 (test "ab" symbol->string y)
 (test y string->symbol "ab")
 
+(test #f eq? (symbol->string 'apple) (symbol->string 'apple))
+(test "apple" symbol->immutable-string 'apple)
+(test #t immutable? (symbol->immutable-string 'apple))
+
 #ci(test #t eq? 'mISSISSIppi 'mississippi)
 #ci(test #f 'string->symbol (eq? 'bitBlt (string->symbol "bitBlt")))
 #cs(test #t 'string->symbol (eq? 'bitBlt (string->symbol "bitBlt")))
@@ -459,6 +469,11 @@
 (test #t keyword<? (string->keyword "\uA0") (string->keyword "\uFF"))
 (test #f keyword<? (string->keyword "\uFF") (string->keyword "\uA0"))
 (test #f keyword<? (string->keyword "\uA0") (string->keyword "\uA0"))
+
+(test #f eq? (keyword->string '#:apple) (keyword->string '#:apple))
+(test "apple" keyword->immutable-string '#:apple)
+(test #t immutable? (keyword->immutable-string '#:apple))
+
 
 (arity-test keyword? 1 1)
 (arity-test keyword<? 1 -1)
@@ -818,6 +833,15 @@
 (err/rt-test (string-append 1))
 (err/rt-test (string-append "hello" 1))
 (err/rt-test (string-append "hello" 1 "done"))
+(test "foobar" string-append-immutable "foo" "bar")
+(test "foo" string-append-immutable "foo")
+(test "" string-append-immutable)
+(test "" string-append-immutable "" "")
+(test #t immutable? (string-append-immutable "foo" "bar"))
+(test #t immutable? (string-append-immutable "foo"))
+(test #t immutable? (string-append-immutable "" ""))
+(test #t immutable? (string-append-immutable))
+(test #f immutable? (string-append (string->immutable-string "hello")))
 (test "" make-string 0)
 (define s (string-copy "hello"))
 (define s2 (string-copy s))
@@ -1144,13 +1168,26 @@
 (test (bytes 97 0 98) bytes-copy (bytes 97 0 98))
 (bytes-fill! s (char->integer #\x))
 (test #"xxxxx" 'bytes-fill! s)
+(let ([bstr (make-bytes 10)])
+  (test (void) bytes-copy! bstr 1 #"testing" 2 6)
+  (test #"\0stin\0\0\0\0\0" values bstr)
+  (test (void) bytes-copy! bstr 0 #"testing")
+  (test #"testing\0\0\0" values bstr))
 (arity-test bytes-copy 1 1)
 (arity-test bytes-fill! 2 2)
 (err/rt-test (bytes-copy 'blah))
 (err/rt-test (bytes-fill! 'sym 1))
 (err/rt-test (bytes-fill! #"static" 1))
 (err/rt-test (bytes-fill! (bytes-copy #"oops") #\5))
-
+(err/rt-test (bytes-copy! (bytes-copy #"oops") #\5))
+(err/rt-test (bytes-copy! (bytes-copy #"oops") 0 -1))
+(err/rt-test (bytes-copy! (bytes-copy #"oops") 0 #"src" #f))
+(err/rt-test (bytes-copy! (bytes-copy #"oops") 0 #"src" -1))
+(err/rt-test (bytes-copy! (bytes-copy #"oops") 0 #"src" 1 #f))
+(err/rt-test (bytes-copy! (bytes-copy #"oops") 0 #"src" 1 0))
+(err/rt-test (bytes-copy! (bytes-copy #"oops") 0 #"src" 1 17))
+(err/rt-test (bytes-copy! (bytes-copy #"o") 0 #"src"))
+(err/rt-test (bytes-copy! (bytes-copy #"o") 0 #"src" 1))
 (test #t bytes=? #"a" #"a" #"a")
 (test #t bytes=? #"a" #"a")
 (test #t bytes=? #"a")
@@ -1491,6 +1528,8 @@
 (err/rt-test (apply (lambda x x) 1))
 (err/rt-test (apply (lambda x x) 1 2))
 (err/rt-test (apply (lambda x x) 1 '(2 . 3)))
+(err/rt-test (apply 10 '(2 . 3)))
+(err/rt-test (apply 10 0 '(2 . 3)))
 
 (test '(b e h) map cadr '((a b) (d e) (g h)))
 (test '(5 7 9) map + '(1 2 3) '(4 5 6))
@@ -3064,6 +3103,33 @@
 (test 'again object-name (procedure-rename (procedure-rename + 'plus) 'again))
 (test 'again object-name (procedure-rename (procedure-reduce-arity + 3) 'again))
 (test 3 procedure-arity (procedure-rename (procedure-reduce-arity + 3) 'again))
+
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(test #f equal?/recur 1 2 (lambda (a b) 'yes))
+(test #t equal?/recur 1 1 (lambda (a b) 'yes))
+(test #t equal?/recur '(1 . 2) '(1 . 2) (lambda (a b) 'yes))
+(test #f equal?/recur '(1 . 2) '(1 . 2) (lambda (a b) (eq? a 1)))
+(test #t equal?/recur '(1 . 1) '(1 . 2) (lambda (a b) (or (eq? a b) (eq? a 1))))
+
+(test #t equal?/recur '#(1 2 3) '#(1 2 3) (lambda (a b) 'yes))
+(test #f equal?/recur '#(1 2 3) '#(1 2 3) (lambda (a b) (not (eqv? a 2))))
+
+(test #t equal?/recur '#&1 '#&1 (lambda (a b) 'yes))
+(test #f equal?/recur '#&1 '#&1 (lambda (a b) #f))
+
+(test #t equal?/recur '#hash((1 . x)) '#hash((1 . x)) (lambda (a b) 'yes))
+(test #t equal?/recur '#hash((1 . x)) '#hash((1 . z)) (lambda (a b) (or (eq? a b) (eq? 'z b))))
+(test #f equal?/recur '#hash(("2" . x)) (hash (string-copy "2") 'x) (lambda (a b) (eq? a b)))
+(test #t equal?/recur '#hash(("2" . x)) (hash (string-copy "2") 'x) (lambda (a b) (or (eq? a b) (eq? "2" a))))
+(test #f equal?/recur '#hash((1 . x)) '#hash((1 . x)) (lambda (a b) #f))
+(test #f equal?/recur '#hash((1 . x)) '#hash((1 . x)) (lambda (a b) (eq? a 1)))
+(test #f equal?/recur '#hash((1 . x)) '#hash((1 . x)) (lambda (a b) (eq? a 'x)))
+
+(let ()
+  (struct a (x) #:transparent)
+  (test #t equal?/recur (a 1) (a 2) (lambda (a b) 'yes))
+  (test #f equal?/recur (a 1) (a 1) (lambda (a b) (not (eq? a 1)))))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

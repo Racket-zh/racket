@@ -140,15 +140,20 @@
 ;; ----------------------------------------
 ;; Alarms
 
-(test #f sync/timeout 0.1 (alarm-evt (+ (current-inexact-milliseconds) 200)))
-(test 'ok sync/timeout 0.1 
-      (wrap-evt
-       (alarm-evt (+ (current-inexact-milliseconds) 50))
-       (lambda (x) 'ok)))
-(test 'ok sync/timeout 100
-      (wrap-evt
-       (alarm-evt (+ (current-inexact-milliseconds) 50))
-       (lambda (x) 'ok)))
+;; These tests are inherently flaky, because they rely on Racket
+;; running fast enough relative to wall-clock time.
+
+(when (run-unreliable-tests? 'timing)
+  
+  (test #f sync/timeout 0.1 (alarm-evt (+ (current-inexact-milliseconds) 200)))
+  (test 'ok sync/timeout 0.1
+        (wrap-evt
+         (alarm-evt (+ (current-inexact-milliseconds) 50))
+         (lambda (x) 'ok)))
+  (test 'ok sync/timeout 100
+        (wrap-evt
+         (alarm-evt (+ (current-inexact-milliseconds) 50))
+         (lambda (x) 'ok))))
 
 ;; ----------------------------------------
 ;; Waitable sets
@@ -175,6 +180,7 @@
     (test s2 sync/timeout SYNC-SLEEP-DELAY set)
     (test #f sync/timeout SYNC-SLEEP-DELAY set))
   (thread (lambda () (sleep) (semaphore-post s3)))
+  (sync (system-idle-evt))
   (test s3 sync/timeout SYNC-SLEEP-DELAY (choice-evt s1 s2 s3))
   (test #f sync/timeout SYNC-SLEEP-DELAY (choice-evt s1 s2 s3))
   (semaphore-post s3)
@@ -205,12 +211,14 @@
 	 [set (choice-evt s1 s2 c)])
     (test #f sync/timeout SYNC-SLEEP-DELAY set)
     (thread (lambda () (channel-put c 12)))
+    (sync (system-idle-evt))
     (test 12 sync/timeout SYNC-SLEEP-DELAY set)
     (test #f sync/timeout SYNC-SLEEP-DELAY set)
     (let* ([p (channel-put-evt c 85)]
 	   [set (choice-evt s1 s2 p)])
       (test #f sync/timeout SYNC-SLEEP-DELAY set)
       (thread (lambda () (channel-get c)))
+      (sync (system-idle-evt))
       (test p sync/timeout SYNC-SLEEP-DELAY set)
       (test #f sync/timeout SYNC-SLEEP-DELAY set))))
 
@@ -346,6 +354,20 @@
 (test #t handle-evt? (choice-evt (wrap-evt always-evt void) (handle-evt always-evt void)))
 (test #f handle-evt? (wrap-evt always-evt void))
 (test #f handle-evt? (choice-evt (wrap-evt always-evt void) (wrap-evt always-evt void)))
+
+(let ()
+  (define (check-handle evt)
+    (test 'yes 'handle-evt-tail
+          (with-continuation-mark
+           'here 'yes
+           (sync (handle-evt evt
+                             (lambda (v)
+                               (call-with-immediate-continuation-mark
+                                'here
+                                (lambda (v) v))))))))
+  (check-handle always-evt)
+  (let ([t (thread (lambda () (void)))])
+    (check-handle (thread-dead-evt t))))
 
 ;; ----------------------------------------
 ;; Nack waitables
@@ -523,7 +545,7 @@
   (test 'not-ready values ok?))
 
 ;; If a `nack-guard-evt` function returns a `choice-evt`,
-;; then chosing any of those should avoid a NACK:
+;; then choosing any of those should avoid a NACK:
 (let ([n #f])
   (sync (nack-guard-evt (lambda (nack)
                           (set! n nack)
@@ -565,6 +587,15 @@
                                   (test #f values poll?)
                                   s))
                 (make-semaphore))))
+
+(let ()
+  (define k #f)
+  (test always-evt sync (poll-guard-evt
+                         (lambda (poll?)
+                           (let/cc now-k
+                             (set! k now-k))
+                           always-evt)))
+  (err/rt-test (k 10)))
 
 ;; ----------------------------------------
 ;; Replace waitables
@@ -837,7 +868,7 @@
 
 ;; ----------------------------------------
 
-;; In the current implemenation, a depth of 10 for 
+;; In the current implementation, a depth of 10 for 
 ;;  waitable chains is a magic number; it causes the scheduler to
 ;;  swap a thread in to check whether it can run, instead of
 ;;  checking in the thread. (For a well-behaved chain, this 
@@ -1368,7 +1399,7 @@
 	     (procedure-rename (mk-capturing 'act) 'act-capturing))))))
 
 ;; ----------------------------------------
-;; Check wrap-evt result superceded by internally
+;; Check wrap-evt result superseded by internally
 ;;  installed constant (i.e., the input port):
 
 (let ([p (make-input-port
@@ -1527,6 +1558,22 @@
   (thread-resume t)
   (void (sync t))
   (test 'ok values v))
+
+;; ----------------------------------------
+;; Try to make a semaphore-post succeed at exactly
+;; the same time that a `sync/timeout` times out
+
+(for ([i 10])
+  (define s (make-semaphore))
+  (define t (thread
+             (lambda ()
+               (sleep (- 0.1 (* 0.001 (random))))
+               (semaphore-post s))))
+  (define r (sync/timeout 0.1 s))
+  (unless r
+    ;; This will get stuck if the success of time sync got lost
+    (sync s))
+  (thread-wait t))
 
 ;; ----------------------------------------
 

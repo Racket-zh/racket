@@ -255,6 +255,9 @@ RUMBLE_SRCS = rumble/define.ss \
               rumble/object-name.ss \
               rumble/arity.ss \
               rumble/intmap.ss \
+              rumble/patricia.ss \
+              rumble/hamt-stencil.ss \
+              rumble/hamt-vector.ss \
               rumble/hash.ss \
               rumble/datum.ss \
 	      rumble/lock.ss \
@@ -298,6 +301,7 @@ RUMBLE_SRCS = rumble/define.ss \
               rumble/place.ss \
               rumble/errno-data.ss \
               rumble/foreign.ss \
+              rumble/async-callback.ss \
               rumble/future.ss \
               rumble/version.ss \
               rumble/inline.ss \

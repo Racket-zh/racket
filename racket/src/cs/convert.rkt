@@ -3,16 +3,14 @@
          racket/pretty
          racket/match
          racket/file
-         racket/fixnum
-         racket/flonum
-         racket/unsafe/ops
          racket/extflonum
-         racket/include
          "../schemify/schemify.rkt"
          "../schemify/serialize.rkt"
          "../schemify/known.rkt"
          "../schemify/lift.rkt"
-         "../schemify/wrap.rkt")
+         "../schemify/reinfer-name.rkt"
+         "../schemify/wrap.rkt"
+         "known.rkt")
 
 (define skip-export? #f)
 (define for-cify? #f)
@@ -99,40 +97,9 @@
 (unless for-cify?
   (lift l))
 
-(define prim-knowns
-  (let ([knowns (hasheq)])
-    (define-syntax-rule (define-primitive-table id [prim known] ...)
-      (begin (set! knowns (hash-set knowns 'prim known)) ...))
-    (include "primitive/kernel.ss")
-    (include "primitive/unsafe.ss")
-    (include "primitive/flfxnum.ss")
-    (include "primitive/paramz.ss")
-    (include "primitive/extfl.ss")
-    (include "primitive/network.ss")
-    (include "primitive/futures.ss")
-    (include "primitive/place.ss")
-    (include "primitive/foreign.ss")
-    (include "primitive/linklet.ss")
-    (include "primitive/internal.ss")
-    knowns))
-
-(define primitives
-  (let ([ns (make-base-namespace)])
-    (namespace-attach-module (current-namespace) 'racket/fixnum ns)
-    (namespace-require 'racket/fixnum ns)
-    (namespace-attach-module (current-namespace) 'racket/flonum ns)
-    (namespace-require 'racket/flonum ns)
-    (namespace-attach-module (current-namespace) 'racket/unsafe/ops ns)
-    (namespace-require 'racket/unsafe/ops ns)
-    (define primitives (make-hasheq))
-    (for ([s (in-list (namespace-mapped-symbols ns))])
-      (define v (namespace-variable-value s
-                                          #t
-                                          (lambda () #f)
-                                          ns))
-      (when v
-        (hash-set! primitives s v)))
-    primitives))
+(define prim-knowns (get-prim-knowns))
+(define primitives (get-primitives))
+(check-known-values prim-knowns primitives)
 
 ;; Convert:
 (define schemified-body
@@ -142,11 +109,13 @@
           (begin
             (printf "Serializable...\n")
             (time (convert-for-serialize l for-cify?)))
-          (values l null)))
+          (values (recognize-inferred-names l) null)))
     (printf "Schemify...\n")
     (define body
       (time
-       (schemify-body bodys/constants-lifted prim-knowns primitives #hasheq() #hasheq() for-cify? unsafe-mode? #t)))
+       (schemify-body bodys/constants-lifted prim-knowns primitives #hasheq() #hasheq() for-cify? unsafe-mode?
+                      #t    ; no-prompt?
+                      #f))) ; explicit-unnamed?
     (printf "Lift...\n")
     ;; Lift functions to avoid closure creation:
     (define lifted-body
@@ -219,15 +188,7 @@
 
 ;; ----------------------------------------
 
-;; Startup code as an S-expression uses the pattern
-;;   (lambda <formals> (begin '<id> <expr>))
-;; or
-;;   (case-lambda [<formals> (begin '<id> <expr>)] <clause> ...)
-;; to record a name for a function. Detect that pattern and
-;; create a `#%name` form. We rely on the fact
-;; that the names `lambda`, `case-lambda`, and `quote` are
-;; never shadowed, so we don't have to parse expression forms
-;; in general.
+;; Convert 'inferred-name properties to `#%name` forms
 (define (rename-functions e)
   (cond
     [(wrap? e)
@@ -238,32 +199,8 @@
        [else
         (rename-functions (unwrap e))])]
     [(not (pair? e)) e]
-    [else
-     (define (begin-name e)
-       (and (pair? e)
-            (eq? (car e) 'begin)
-            (pair? (cdr e))
-            (pair? (cddr e))
-            (pair? (cadr e))
-            (eq? 'quote (caadr e))
-            (cadadr e)))
-     (case (car e)
-       [(quote) e]
-       [(lambda)
-        (define new-e (map rename-functions e))
-        (define name (begin-name (caddr e)))
-        (if name
-            `(#%name ,name ,new-e)
-            new-e)]
-       [(case-lambda)
-        (define new-e (map rename-functions e))
-        (define name (and (pair? (cdr e))
-                          (begin-name (cadadr e))))
-        (if name
-            `(#%name ,name ,new-e)
-            new-e)]
-       [else (cons (rename-functions (car e))
-                   (rename-functions (cdr e)))])]))
+    [else (cons (rename-functions (car e))
+                (rename-functions (cdr e)))]))
 
 ;; ----------------------------------------
 

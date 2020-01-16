@@ -78,21 +78,19 @@
      (/ (time-nanosecond t) 1000000.)))
 
 (define (time-apply f extra)
-  (let ([stats (statistics)])
+  (let ([pre-cpu (current-time 'time-process)]
+        [pre-real (current-time 'time-monotonic)]
+        [pre-gc (#%$gc-cpu-time)])
     (call-with-values (lambda () (apply f extra))
       (lambda args
-        (let ([new-stats (statistics)])
+        (let ([post-cpu (current-time 'time-process)]
+              [post-real (current-time 'time-monotonic)]
+              [post-gc (#%$gc-cpu-time)])
           (values
            args
-           (inexact->exact (floor (time->ms
-                                   (time-difference (sstats-cpu new-stats)
-                                                    (sstats-cpu stats)))))
-           (inexact->exact (floor (time->ms
-                                   (time-difference (sstats-real new-stats)
-                                                    (sstats-real stats)))))
-           (inexact->exact (floor (time->ms
-                                   (time-difference (sstats-gc-cpu new-stats)
-                                                    (sstats-gc-cpu stats)))))))))))
+           (inexact->exact (floor (time->ms (time-difference post-cpu pre-cpu))))
+           (inexact->exact (floor (time->ms (time-difference post-real pre-real))))
+           (inexact->exact (floor (time->ms (time-difference post-gc pre-gc))))))))))
 
 (define (current-gc-milliseconds)
   (inexact->exact (floor (time->ms (#%$gc-cpu-time)))))
@@ -113,25 +111,34 @@
    [(s local?)
     (check who real? s)
     (let* ([s (inexact->exact s)]
-           [tm (make-time 'time-utc
-                          (floor (* (- s (floor s)) 1000000000))
-                          (floor s))]
-           [d (if local?
-                  (time-utc->date tm)
-                  (time-utc->date tm 0))])
-      (make-date*/direct (chez:date-second d)
-                         (chez:date-minute d)
-                         (chez:date-hour d)
-                         (chez:date-day d)
-                         (chez:date-month d)
-                         (chez:date-year d)
-                         (chez:date-week-day d)
-                         (chez:date-year-day d)
-                         (chez:date-dst? d)
-                         (date-zone-offset d)
-                         (date-nanosecond d)
-                         (or (let ([n (date-zone-name d)])
-                               (and n (string->immutable-string n)))
-                             utc-string)))]))
+           [si (floor s)])
+      (unless (in-date-range? si)
+        (raise-arguments-error who "integer is out-of-range"
+                               "integer" si))
+      (let* ([tm (make-time 'time-utc
+                            (floor (* (- s si) 1000000000))
+                            si)]
+             [d (if local?
+                    (time-utc->date tm)
+                    (time-utc->date tm 0))])
+        (make-date*/direct (chez:date-second d)
+                           (chez:date-minute d)
+                           (chez:date-hour d)
+                           (chez:date-day d)
+                           (chez:date-month d)
+                           (chez:date-year d)
+                           (chez:date-week-day d)
+                           (chez:date-year-day d)
+                           (chez:date-dst? d)
+                           (date-zone-offset d)
+                           (date-nanosecond d)
+                           (or (let ([n (date-zone-name d)])
+                                 (and n (string->immutable-string n)))
+                               utc-string))))]))
+
+(define (in-date-range? si)
+  (if (> (fixnum-width) 32)
+      (<= -9223372036854775808 si 9223372036854775807)
+      (<= -2147483648 si 2147483647)))
 
 (define utc-string (string->immutable-string "UTC"))

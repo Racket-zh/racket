@@ -873,6 +873,13 @@
 (test 0.4+0.2i / 2.0-1.0i)
 (test 0.0+0.0i / 0.0+0.0i 1+1e-320i)
 (test 0.0+0.0i / 0.0+0.0i #e1+1e-320i)
+(test -0.0+0.0i / -1.0e-9-1.0e+300i)
+(test -0.0+0.0i / 1.0+0.0i -1.0e-9-1.0e+300i)
+(test -0.0-0.0i / 0.0+1.0i -1.0e+300-1.0e-9i)
+(test -0.0-0.0i / +1i -1.0e+300-1.0e-9i)
+(test +nan.0+nan.0i / 0.0+0.0i)
+(test 0.0-0.0i / 9.18e+55 4.0+1.79e+308i)
+(test 0.0+nan.0i / 9.18e+55+0.0i 4.0+1.79e+308i)
 
 (test 3 / 1 1/3)
 (test -3 / 1 -1/3)
@@ -2691,6 +2698,10 @@
                               (apply append (for/list ([i 10000])
                                               (random-sample (range 10) 100)))))))
 
+(parameterize ([current-pseudo-random-generator (make-pseudo-random-generator)])
+  (random-seed 2)
+  (test '#(1062645402 3593208522 3838676319 2291995347 179540564 3081399108)
+        pseudo-random-generator->vector (current-pseudo-random-generator)))
 
 (test #t = 0 0)
 (test #f = 0 (expt 2 32))
